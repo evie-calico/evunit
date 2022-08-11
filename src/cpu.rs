@@ -190,10 +190,10 @@ impl State {
 				self.set_nf(false);
 				self.set_hf(false);
 				self.set_cf(self.a & 0b10000000 != 0);
-				self.a = u8::rotate_left(self.a);
+				self.a = u8::rotate_left(self.a, 1);
 			},
 			/* jr u8 */ 0x18 => {
-				self.pc = u16::wrapping_add(self.pc, self.read_pc(&address_space) as i16);
+				self.pc = i16::wrapping_add(self.pc as i16, self.read_pc(&address_space) as i16) as u16;
 				self.cycles_processed += 1;
 			},
 			/* add hl, de */ 0x19 => {
@@ -212,7 +212,7 @@ impl State {
 				self.cycles_processed += 1;
 			},
 			/* inc e */ 0x1C => {
-				let old_e = self.c;
+				let old_e = self.e;
 				self.e = u8::wrapping_add(self.e, 1);
 				self.set_zf(self.e != 0);
 				self.set_nf(false);
@@ -223,7 +223,7 @@ impl State {
 				self.e = u8::wrapping_sub(self.e, 1);
 				self.set_zf(self.e != 0);
 				self.set_nf(true);
-				self.set_hf(self.e & 0x1F == 0x10);
+				self.set_hf(old_e & 0x1F == 0x10);
 			},
 			/* ld e, u8 */ 0x1E => {
 				self.e = self.read_pc(&address_space);
@@ -233,13 +233,13 @@ impl State {
 				self.set_nf(false);
 				self.set_hf(false);
 				self.set_cf(self.a & 0b00000001 != 0);
-				self.a = u8::rotate_right(self.a);
+				self.a = u8::rotate_right(self.a, 1);
 			},
 			/* jr nz */ 0x20 => {
 				let offset = self.read_pc(&address_space) as i16;
 				if !self.get_zf() {
-					self.pc = u16::wrapping_add(self.pc, offset);
-					send.cycles_processed += 1;
+					self.pc = i16::wrapping_add(self.pc as i16, offset) as u16;
+					self.cycles_processed += 1;
 				}
 			},
 			/* ld hl, u16 */ 0x21 => {
@@ -248,7 +248,7 @@ impl State {
 			},
 			/* ld [hli], a */ 0x22 => {
 				address_space.write(self.get_hl(), self.a);
-				self.hl = u16::wrapping_add(self.hl, 1);
+				self.set_hl(u16::wrapping_add(self.get_hl(), 1));
 				self.cycles_processed += 1;
 			},
 			/* inc hl */ 0x23 => {
@@ -278,45 +278,45 @@ impl State {
 			/* jr z */ 0x28 => {
 				let offset = self.read_pc(&address_space) as i16;
 				if self.get_zf() {
-					self.pc = u16::wrapping_add(self.pc, offset);
-					send.cycles_processed += 1;
+					self.pc = i16::wrapping_add(self.pc as i16, offset) as u16;
+					self.cycles_processed += 1;
 				}
 			},
-			/* add hl, hl */ 0x19 => {
+			/* add hl, hl */ 0x29 => {
 				let old_hl = self.get_hl();
 				self.set_hl(u16::wrapping_add(self.get_hl(), self.get_hl()));
 				self.set_nf(false);
 				self.set_hf((old_hl & 0xFFF + self.get_hl() > 0xFFF) == true);
 				self.cycles_processed += 1;
 			},
-			/* ld a, [hli] */ 0x1A => {
+			/* ld a, [hli] */ 0x2A => {
 				self.a = address_space.read(self.get_hl());
-				self.hl = u16::wrapping_add(self.hl, 1);
+				self.set_hl(u16::wrapping_add(self.get_hl(), 1));
 				self.cycles_processed += 1;
 			},
-			/* dec hl */ 0x1B => {
+			/* dec hl */ 0x2B => {
 				self.set_hl(u16::wrapping_sub(self.get_hl(), 1));
 				self.cycles_processed += 1;
 			},
-			/* inc e */ 0x1C => {
-				let old_e = self.c;
-				self.e = u8::wrapping_add(self.e, 1);
-				self.set_zf(self.e != 0);
+			/* inc l */ 0x2C => {
+				let old_l = self.l;
+				self.l = u8::wrapping_add(self.l, 1);
+				self.set_zf(self.l != 0);
 				self.set_nf(false);
-				self.set_hf(old_e & 0xF == 0xF);
+				self.set_hf(old_l & 0xF == 0xF);
 			},
-			/* dec e */ 0x1D => {
-				let old_e = self.e;
-				self.e = u8::wrapping_sub(self.e, 1);
-				self.set_zf(self.e != 0);
+			/* dec l */ 0x2D => {
+				let old_l = self.l;
+				self.l = u8::wrapping_sub(self.l, 1);
+				self.set_zf(self.l != 0);
 				self.set_nf(true);
-				self.set_hf(self.e & 0x1F == 0x10);
+				self.set_hf(old_l & 0x1F == 0x10);
 			},
-			/* ld e, u8 */ 0x1E => {
-				self.e = self.read_pc(&address_space);
+			/* ld l, u8 */ 0x2E => {
+				self.l = self.read_pc(&address_space);
 			},
-			/* cpl */ 0x1F => {
-				self.a = ~self.a;
+			/* cpl */ 0x2F => {
+				self.a = !self.a;
 			},
 			_ => panic!("Invalid opcode"),
 		}
