@@ -1,6 +1,6 @@
 use crate::memory::AddressSpace;
+use std::fmt;
 
-#[derive(Debug)]
 pub struct Flags {
 	pub value: u8
 }
@@ -24,7 +24,17 @@ impl Flags {
 	}
 }
 
-#[derive(Debug)]
+impl fmt::Debug for Flags {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "{}{}{}{}",
+			if self.get_z() {'z'} else {'-'},
+			if self.get_n() {'n'} else {'-'},
+			if self.get_h() {'h'} else {'-'},
+			if self.get_c() {'c'} else {'-'},
+		)
+	}
+}
+
 pub struct State {
 	// Primary CPU Registers
 	pub a: u8, pub f: Flags,
@@ -127,8 +137,49 @@ impl State {
 			let old_hl = cpu.get_hl();
 			cpu.set_hl(u16::wrapping_add(cpu.get_hl(), value));
 			cpu.f.set_n(false);
-			cpu.f.set_h((old_hl & 0xFFF + value > 0xFFF) == true);
+			cpu.f.set_h((old_hl & 0xFFF + value & 0xFFF > 0xFFF) == true);
+			cpu.f.set_c(old_hl > cpu.get_hl());
 			cpu.cycles_processed += 1;
+		}
+
+		fn add_a_r8(value: u8, cpu: &mut State) {
+			let old_a = cpu.a;
+			cpu.a = u8::wrapping_add(cpu.a, value);
+			cpu.f.set_z(cpu.a == 0);
+			cpu.f.set_n(false);
+			cpu.f.set_h((old_a & 0xF + value & 0xF > 0xF) == true);
+			cpu.f.set_c(old_a > cpu.a);
+		}
+
+		fn adc_a_r8(value: u8, cpu: &mut State) {
+			let carry = cpu.f.get_c() as u8;
+			let old_a = cpu.a;
+			cpu.a = u8::wrapping_add(cpu.a, value);
+			cpu.a = u8::wrapping_add(cpu.a, carry);
+			cpu.f.set_z(cpu.a == 0);
+			cpu.f.set_n(false);
+			cpu.f.set_h((old_a & 0xF + value & 0xF + carry > 0xF) == true);
+			cpu.f.set_c(old_a as u16 + value as u16 + carry as u16 > 0xFF);
+		}
+
+		fn sub_a_r8(value: u8, cpu: &mut State) {
+			let old_a = cpu.a;
+			cpu.a = u8::wrapping_sub(cpu.a, value);
+			cpu.f.set_z(cpu.a == 0);
+			cpu.f.set_n(true);
+			cpu.f.set_h((((old_a & 0xF) as i8) < ((value & 0xF) as i8)) == true);
+			cpu.f.set_c(value > cpu.a);
+		}
+
+		fn sbc_a_r8(value: u8, cpu: &mut State) {
+			let carry = cpu.f.get_c() as u8;
+			let old_a = cpu.a;
+			cpu.a = u8::wrapping_add(cpu.a, value);
+			cpu.a = u8::wrapping_add(cpu.a, carry);
+			cpu.f.set_z(cpu.a == 0);
+			cpu.f.set_n(true);
+			cpu.f.set_h((((old_a & 0xF) as i8) < (((value & 0xF) + carry) as i8)) == true);
+			cpu.f.set_c((old_a as i16 - value as i16 - carry as i16) < 0);
 		}
 
 		match opcode {
@@ -316,7 +367,7 @@ impl State {
 				}
 			},
 			/* ld sp, u16 */ 0x31 => {
-				self.sp = self.read_pc(&address_space) as u16 | (self.read_pc(&address_space) << 8) as u16;
+				self.sp = self.read_pc(&address_space) as u16 | (self.read_pc(&address_space) as u16) << 8;
 			},
 			/* ld [hld], a */ 0x32 => {
 				address_space.write(self.get_hl(), self.a);
@@ -328,19 +379,19 @@ impl State {
 				self.cycles_processed += 1;
 			},
 			/* inc [hl] */ 0x34 => {
-				let value = address_space.read(self.get_hl());
+				let mut value = address_space.read(self.get_hl());
 				inc_r8(&mut value, &mut self.f);
 				address_space.write(self.get_hl(), value);
 				self.cycles_processed += 2;
 			},
 			/* dec [hl] */ 0x35 => {
-				let value = address_space.read(self.get_hl());
+				let mut value = address_space.read(self.get_hl());
 				dec_r8(&mut value, &mut self.f);
 				address_space.write(self.get_hl(), value);
 				self.cycles_processed += 2;
 			},
 			/* ld [hl], u8 */ 0x36 => {
-				address_space.write(self.get_hl(), self.read_pc());
+				address_space.write(self.get_hl(), self.read_pc(&address_space));
 				self.cycles_processed += 1;
 			},
 			/* scf */ 0x37 => {
@@ -381,6 +432,138 @@ impl State {
 				self.f.set_h(false);
 				self.f.set_c(!self.f.get_c());
 			},
+			/* ld b family */
+			0x40 => { self.b = self.b; },
+			0x41 => { self.b = self.c; },
+			0x42 => { self.b = self.d; },
+			0x43 => { self.b = self.e; },
+			0x44 => { self.b = self.h; },
+			0x45 => { self.b = self.l; },
+			0x46 => {
+				self.b = address_space.read(self.get_hl());
+				self.cycles_processed += 1;
+			},
+			0x47 => { self.b = self.a; },
+			/* ld c family */
+			0x48 => { self.c = self.b; },
+			0x49 => { self.c = self.c; },
+			0x4A => { self.c = self.d; },
+			0x4B => { self.c = self.e; },
+			0x4C => { self.c = self.h; },
+			0x4D => { self.c = self.l; },
+			0x4E => {
+				self.c = address_space.read(self.get_hl());
+				self.cycles_processed += 1;
+			},
+			0x4F => { self.c = self.a; },
+			/* ld d family */
+			0x50 => { self.d = self.b; },
+			0x51 => { self.d = self.c; },
+			0x52 => { self.d = self.d; },
+			0x53 => { self.d = self.e; },
+			0x54 => { self.d = self.h; },
+			0x55 => { self.d = self.l; },
+			0x56 => {
+				self.d = address_space.read(self.get_hl());
+				self.cycles_processed += 1;
+			},
+			0x57 => { self.d = self.a; },
+			/* ld e family */
+			0x58 => { self.e = self.b; },
+			0x59 => { self.e = self.c; },
+			0x5A => { self.e = self.d; },
+			0x5B => { self.e = self.e; },
+			0x5C => { self.e = self.h; },
+			0x5D => { self.e = self.l; },
+			0x5E => {
+				self.e = address_space.read(self.get_hl());
+				self.cycles_processed += 1;
+			},
+			0x5F => { self.e = self.a; },
+			/* ld h family */
+			0x60 => { self.h = self.b; },
+			0x61 => { self.h = self.c; },
+			0x62 => { self.h = self.d; },
+			0x63 => { self.h = self.e; },
+			0x64 => { self.h = self.h; },
+			0x65 => { self.h = self.l; },
+			0x66 => {
+				self.h = address_space.read(self.get_hl());
+				self.cycles_processed += 1;
+			},
+			0x67 => { self.h = self.a; },
+			/* ld l family */
+			0x68 => { self.l = self.b; },
+			0x69 => { self.l = self.c; },
+			0x6A => { self.l = self.d; },
+			0x6B => { self.l = self.e; },
+			0x6C => { self.l = self.h; },
+			0x6D => { self.l = self.l; },
+			0x6E => {
+				self.l = address_space.read(self.get_hl());
+				self.cycles_processed += 1;
+			},
+			0x6F => { self.l = self.a; },
+			/* ld [hl] family */
+			0x70 => { address_space.write(self.get_hl(), self.b); },
+			0x71 => { address_space.write(self.get_hl(), self.c); },
+			0x72 => { address_space.write(self.get_hl(), self.d); },
+			0x73 => { address_space.write(self.get_hl(), self.e); },
+			0x74 => { address_space.write(self.get_hl(), self.h); },
+			0x75 => { address_space.write(self.get_hl(), self.l); },
+			/* halt */ 0x76 => { return true; },
+			/* ld [hl], a */ 0x77 => {
+				address_space.write(self.get_hl(), self.a);
+				self.cycles_processed += 1;
+			},
+			/* ld a family */
+			0x78 => { self.a = self.b; },
+			0x79 => { self.a = self.c; },
+			0x7A => { self.a = self.d; },
+			0x7B => { self.a = self.e; },
+			0x7C => { self.a = self.h; },
+			0x7D => { self.a = self.l; },
+			0x7E => {
+				self.a = address_space.read(self.get_hl());
+				self.cycles_processed += 1;
+			},
+			0x7F => { self.a = self.a; },
+			/* add family */
+			0x80 => { add_a_r8(self.b, self); },
+			0x81 => { add_a_r8(self.c, self); },
+			0x82 => { add_a_r8(self.d, self); },
+			0x83 => { add_a_r8(self.e, self); },
+			0x84 => { add_a_r8(self.h, self); },
+			0x85 => { add_a_r8(self.l, self); },
+			0x86 => { add_a_r8(address_space.read(self.get_hl()), self); self.cycles_processed += 1; }
+			0x87 => { add_a_r8(self.l, self); },
+			/* adc family */
+			0x88 => { adc_a_r8(self.b, self); },
+			0x89 => { adc_a_r8(self.c, self); },
+			0x8A => { adc_a_r8(self.d, self); },
+			0x8B => { adc_a_r8(self.e, self); },
+			0x8C => { adc_a_r8(self.h, self); },
+			0x8D => { adc_a_r8(self.l, self); },
+			0x8E => { adc_a_r8(address_space.read(self.get_hl()), self); self.cycles_processed += 1; }
+			0x8F => { adc_a_r8(self.l, self); },
+			/* sub family */
+			0x90 => { sub_a_r8(self.b, self); },
+			0x91 => { sub_a_r8(self.c, self); },
+			0x92 => { sub_a_r8(self.d, self); },
+			0x93 => { sub_a_r8(self.e, self); },
+			0x94 => { sub_a_r8(self.h, self); },
+			0x95 => { sub_a_r8(self.l, self); },
+			0x96 => { sub_a_r8(address_space.read(self.get_hl()), self); self.cycles_processed += 1; }
+			0x97 => { sub_a_r8(self.l, self); },
+			/* sbc family */
+			0x98 => { sbc_a_r8(self.b, self); },
+			0x99 => { sbc_a_r8(self.c, self); },
+			0x9A => { sbc_a_r8(self.d, self); },
+			0x9B => { sbc_a_r8(self.e, self); },
+			0x9C => { sbc_a_r8(self.h, self); },
+			0x9D => { sbc_a_r8(self.l, self); },
+			0x9E => { sbc_a_r8(address_space.read(self.get_hl()), self); self.cycles_processed += 1; }
+			0x9F => { sbc_a_r8(self.l, self); },
 			_ => panic!("Invalid opcode"),
 		}
 
@@ -401,5 +584,20 @@ impl State {
 			sp: 0,
 			cycles_processed: 0,
 		}
+	}
+}
+
+impl fmt::Debug for State {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, 
+"a:  0x{:02x}
+bc: 0x{:02x}{:02x}
+de: 0x{:02x}{:02x}
+hl: 0x{:02x}{:02x}
+f: {:?}
+pc: 0x{:04x}
+sp: 0x{:04x}
+Elapsed cycles: {}",
+			self.a, self.b, self.c, self.d, self.e, self.h, self.l, self.f, self.pc, self.sp, self.cycles_processed)
 	}
 }
