@@ -10,18 +10,18 @@ fn main() {
 		exit(1);
 	}
 
-	let mut cpu_state = cpu::State::new();
-	let mut address_space;
-	match memory::AddressSpace::open(&args[1]) {
-		Ok(result) => address_space = result,
+	let address_space = match memory::AddressSpace::open(&args[1]) {
+		Ok(result) => result,
 		Err(error) => {
 			eprintln!("Failed to open {}: {}", args[1], error);
 			exit(1);
 		}
-	}
+	};
+
+	let mut cpu_state = cpu::State::new(address_space);
 
 	loop {
-		let complete = cpu_state.tick(&mut address_space);
+		let complete = cpu_state.tick();
 		println!("{cpu_state:#?}\n");
 		if complete { break }
 	}
