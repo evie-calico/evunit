@@ -1,6 +1,7 @@
 use std::io::Error;
 use std::fs;
 
+#[derive(Clone)]
 pub struct AddressSpace {
 	pub rom: Vec<u8>,
 	pub vram: [u8; 0x2000], // VRAM locking is not emulated as there is not PPU present.
@@ -16,6 +17,7 @@ impl AddressSpace {
 		let address = address as usize;
 		match address {
 			0x0000..=0x3FFF => self.rom[address],
+			0xC000..=0xDFFF => self.wram[address - 0xC000],
 			_ => panic!("Unimplemented address range for {address}")
 		}
 	}
@@ -23,7 +25,8 @@ impl AddressSpace {
 	pub fn write(&mut self, address: u16, value: u8) {
 		let address = address as usize;
 		match address {
-			0x0000..=0x3FFF => self.rom[address] = value,
+			0x0000..=0x3FFF => eprintln!("Wrote to ROM (MBC registers are not yet emulated)"),
+			0xC000..=0xDFFF => self.wram[address - 0xC000] = value,
 			_ => panic!("Unimplemented address range for {address}")
 		};
 	}

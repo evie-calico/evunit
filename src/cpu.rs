@@ -35,6 +35,13 @@ impl fmt::Debug for Flags {
 	}
 }
 
+pub enum TickResult {
+	Ok(),
+	Break(),
+	Debug(),
+	Stop(),
+}
+
 pub struct State {
 	// Primary CPU Registers
 	pub a: u8, pub f: Flags,
@@ -86,7 +93,7 @@ impl State {
 	}
 
 	// Returns true upon test completion.
-	pub fn tick(&mut self) -> bool {
+	pub fn tick(&mut self) -> TickResult {
 		let opcode = self.read_pc();
 
 		fn inc_r8(register: &mut u8, flags: &mut Flags) {
@@ -224,10 +231,10 @@ impl State {
 		}
 
 		fn push(value: u16, cpu: &mut State) {
+			cpu.sp = u16::wrapping_sub(cpu.sp, 1);
 			cpu.write(cpu.sp, (value & 0xFF) as u8);
 			cpu.sp = u16::wrapping_sub(cpu.sp, 1);
 			cpu.write(cpu.sp, (value >> 8) as u8);
-			cpu.sp = u16::wrapping_sub(cpu.sp, 1);
 			cpu.cycles_processed += 3;
 		}
 
@@ -329,7 +336,7 @@ impl State {
 			},
 			/* stop */ 0x10 => {
 				self.read_pc();
-				return true;
+				return TickResult::Stop();
 			},
 			/* ld de, u16 */ 0x11 => {
 				self.e = self.read_pc();
@@ -392,8 +399,8 @@ impl State {
 				}
 			},
 			/* ld hl, u16 */ 0x21 => {
-				self.e = self.read_pc();
-				self.d = self.read_pc();
+				self.l = self.read_pc();
+				self.h = self.read_pc();
 			},
 			/* ld [hli], a */ 0x22 => {
 				self.write(self.get_hl(), self.a);
@@ -522,7 +529,7 @@ impl State {
 				self.f.set_c(!self.f.get_c());
 			},
 			/* ld b family */
-			0x40 => { self.b = self.b; },
+			0x40 => { return TickResult::Break(); },
 			0x41 => { self.b = self.c; },
 			0x42 => { self.b = self.d; },
 			0x43 => { self.b = self.e; },
@@ -546,7 +553,7 @@ impl State {
 			},
 			0x4F => { self.c = self.a; },
 			/* ld d family */
-			0x50 => { self.d = self.b; },
+			0x50 => { return TickResult::Debug(); },
 			0x51 => { self.d = self.c; },
 			0x52 => { self.d = self.d; },
 			0x53 => { self.d = self.e; },
@@ -600,7 +607,8 @@ impl State {
 			0x73 => { self.write(self.get_hl(), self.e); },
 			0x74 => { self.write(self.get_hl(), self.h); },
 			0x75 => { self.write(self.get_hl(), self.l); },
-			/* halt */ 0x76 => { return true; },
+			/* halt */
+			0x76 => { return TickResult::Stop(); },
 			/* ld [hl], a */ 0x77 => {
 				self.write(self.get_hl(), self.a);
 				self.cycles_processed += 1;
@@ -899,7 +907,7 @@ impl State {
 			_ => panic!("Invalid opcode"),
 		}
 
-		return false;
+		TickResult::Ok()
 	}
 
 	pub fn new(address_space: AddressSpace) -> State {
@@ -913,7 +921,9 @@ impl State {
 			h: 0,
 			l: 0,
 			pc: 0,
-			sp: 0,
+			// SP defaults to the top of WRAM to minimize conflicts.
+			// Users should set SP to its proper address for all tests.
+			sp: 0xE000, 
 			ei: true,
 			cycles_processed: 0,
 

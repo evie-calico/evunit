@@ -1,1 +1,1 @@
-rgbasm -o - test.asm | rgblink -o test.gb -
+rgbasm -o - test/test.asm | rgblink -o test/test.gb -
