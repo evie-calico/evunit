@@ -1,8 +1,7 @@
 SECTION "Opcode Test", ROM0
 OpcodeTest:
-	inc b
 	REPT 257
-		add a, b
+		add a, 1
 		jr nc, :+
 		stop
 		:
