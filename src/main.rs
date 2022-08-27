@@ -1,12 +1,23 @@
+use clap::Parser;
 use rgbunit::cpu;
 use rgbunit::memory;
-use std::env;
 use std::process::exit;
+
+#[derive(Parser)]
+#[clap(author, version, about, long_about = None)]
+struct Cli {
+	/// Path to the test configuration file
+	#[clap(short, long, value_parser, value_name = "FILE")]
+	config_path: String,
+
+	/// Path to the ROM
+	#[clap(value_parser)]
+	rom_path: String,
+}
 
 // All of these parameters are optional. This is because the initial values as
 // well as the resulting values do not all need to be present, and in the case
 // of results, may even be unknown.
-#[derive(Debug)]
 struct TestConfig {
 	name: String,
 	a: Option<u8>,
@@ -175,13 +186,10 @@ fn read_config(path: &String) -> (TestConfig, Vec<TestConfig>) {
 }
 
 fn main() {
-	let args: Vec<String> = env::args().collect();
-	if args.len() < 2 {
-		eprintln!("usage: {} <rom path>", args[0]);
-		exit(1);
-	}
+	let cli = Cli::parse();
 
-	let rom_path = &args[1];
+	let rom_path = &cli.rom_path;
+	let config_path = &cli.config_path;
 
 	let address_space = match memory::AddressSpace::open(rom_path) {
 		Ok(result) => result,
@@ -191,7 +199,15 @@ fn main() {
 		}
 	};
 
-	let (global_config, tests) = read_config(&String::from("a = 0\nsp = 0xD000\n[add]\nb = 1\n[add.result]\na = 1"));
+	let config_text = match std::fs::read_to_string(config_path) {
+		Ok(result) => result,
+		Err(error) => {
+			eprintln!("Failed to open {}: {}", rom_path, error);
+			exit(1);
+		}
+	};
+
+	let (global_config, tests) = read_config(&config_text);
 	let mut fail_count = 0;
 
 	for test in &tests {
@@ -225,12 +241,12 @@ fn main() {
 			match result.compare(&cpu_state) {
 				Ok(..) => println!("\x1B[92m{}: {} passed\x1B[0m", rom_path, test.name),
 				Err(msg) => {
-					println!("\x1B[91m{}: {} failed\x1B[0m:\n{}", rom_path, test.name, msg);
+					print!("\x1B[91m{}: {} failed\x1B[0m:\n{}", rom_path, test.name, msg);
 					fail_count += 1;
 				}
 			}
 		} else {
-			println!("{} {} exited", rom_path, test.name);
+			println!("\x1B[92m{}: {} passed\x1B[0m", rom_path, test.name);
 		}
 	}
 
