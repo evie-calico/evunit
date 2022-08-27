@@ -3,15 +3,22 @@ use rgbunit::cpu;
 use rgbunit::memory;
 use std::process::exit;
 
+#[derive(PartialEq)]
+enum FailureReason {
+	None,
+	Crash,
+	InvalidOpcode,
+}
+
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Cli {
 	/// Path to the test configuration file
-	#[clap(short, long, value_parser, value_name = "FILE")]
+	#[clap(short, long, value_parser, value_name = "PATH")]
 	config_path: String,
 
 	/// Path to the ROM
-	#[clap(value_parser)]
+	#[clap(value_parser, value_name = "PATH")]
 	rom_path: String,
 }
 
@@ -166,7 +173,13 @@ fn read_config(path: &String) -> (TestConfig, Vec<TestConfig>) {
 
 	let mut global_config = TestConfig::new(String::from("Global"));
 	let mut tests: Vec<TestConfig> = vec![];
-	let toml_file = path.parse::<toml::Value>().unwrap();
+	let toml_file = match path.parse::<toml::Value>() {
+		Ok(file) => file,
+		Err(msg) => {
+			eprintln!("Failed to parse config file: {msg}");
+			exit(1);
+		}
+	};
 
 	if let toml::Value::Table(config) = toml_file {
 		for (key, value) in config.iter() {
@@ -180,6 +193,8 @@ fn read_config(path: &String) -> (TestConfig, Vec<TestConfig>) {
 				parse_configuration(&mut global_config, key, value);
 			}
 		}
+	} else {
+		eprintln!("TOML root is not a table (Please report this and provide the TOML file used.)");
 	}
 
 	(global_config, tests)
@@ -188,8 +203,10 @@ fn read_config(path: &String) -> (TestConfig, Vec<TestConfig>) {
 fn main() {
 	let cli = Cli::parse();
 
-	let rom_path = &cli.rom_path;
-	let config_path = &cli.config_path;
+	let stdin = String::from("/dev/stdin");
+
+	let rom_path = if cli.rom_path == "-" { &stdin } else { &cli.rom_path };
+	let config_path = if cli.config_path == "-" { &stdin } else { &cli.config_path };
 
 	let address_space = match memory::AddressSpace::open(rom_path) {
 		Ok(result) => result,
@@ -222,19 +239,34 @@ fn main() {
 		cpu_state.write(cpu_state.sp - 2, 0xFF);
 		cpu_state.sp -= 2;
 
-		loop {
-			let mut test_complete = false;
+		let mut failure_reason = FailureReason::None;
 
+		loop {
 			match cpu_state.tick() {
-				cpu::TickResult::Ok() => {},
-				cpu::TickResult::Stop() => test_complete = true,
-				cpu::TickResult::Break() => { println!("{cpu_state:#?}\n"); },
-				cpu::TickResult::Debug() => { println!("{cpu_state:#?}\n"); },
+				cpu::TickResult::Ok => {},
+				cpu::TickResult::Halt => break,
+				cpu::TickResult::Stop => break,
+				cpu::TickResult::Break => { println!("{rom_path}: BREAKPOINT in {} \n{cpu_state}", test.name); },
+				cpu::TickResult::Debug => { println!("{rom_path}: DEBUG in {}\n{cpu_state}", test.name); },
+				cpu::TickResult::InvalidOpcode => {
+					failure_reason = FailureReason::InvalidOpcode;
+					break;
+				}
 			}
 
-			test_complete = test_complete || cpu_state.pc == 0xFFFF;
+			if cpu_state.pc == 0xFFFF { break }
+		}
 
-			if test_complete { break }
+		if failure_reason != FailureReason::None {
+			println!("\x1B[91m{}: {} failed\x1B[0m:\n{}\n{}",
+				rom_path, test.name,
+				match failure_reason {
+					FailureReason::InvalidOpcode => "Invalid opcode",
+					FailureReason::Crash => "Crashed",
+					FailureReason::None => "",
+				},
+				cpu_state
+			);
 		}
 
 		if let Some(result) = &test.result {

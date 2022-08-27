@@ -24,7 +24,7 @@ impl Flags {
 	}
 }
 
-impl fmt::Debug for Flags {
+impl fmt::Display for Flags {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		write!(f, "{}{}{}{}",
 			if self.get_z() {'z'} else {'-'},
@@ -36,10 +36,12 @@ impl fmt::Debug for Flags {
 }
 
 pub enum TickResult {
-	Ok(),
-	Break(),
-	Debug(),
-	Stop(),
+	Ok,
+	Break,
+	Debug,
+	Halt,
+	Stop,
+	InvalidOpcode,
 }
 
 pub struct State {
@@ -336,7 +338,7 @@ impl State {
 			},
 			/* stop */ 0x10 => {
 				self.read_pc();
-				return TickResult::Stop();
+				return TickResult::Stop;
 			},
 			/* ld de, u16 */ 0x11 => {
 				self.e = self.read_pc();
@@ -529,7 +531,7 @@ impl State {
 				self.f.set_c(!self.f.get_c());
 			},
 			/* ld b family */
-			0x40 => { return TickResult::Break(); },
+			0x40 => { return TickResult::Break; },
 			0x41 => { self.b = self.c; },
 			0x42 => { self.b = self.d; },
 			0x43 => { self.b = self.e; },
@@ -553,9 +555,9 @@ impl State {
 			},
 			0x4F => { self.c = self.a; },
 			/* ld d family */
-			0x50 => { return TickResult::Debug(); },
+			0x50 => { self.d = self.b; },
 			0x51 => { self.d = self.c; },
-			0x52 => { self.d = self.d; },
+			0x52 => { return TickResult::Debug; },
 			0x53 => { self.d = self.e; },
 			0x54 => { self.d = self.h; },
 			0x55 => { self.d = self.l; },
@@ -608,7 +610,7 @@ impl State {
 			0x74 => { self.write(self.get_hl(), self.h); },
 			0x75 => { self.write(self.get_hl(), self.l); },
 			/* halt */
-			0x76 => { return TickResult::Stop(); },
+			0x76 => { return TickResult::Halt; },
 			/* ld [hl], a */ 0x77 => {
 				self.write(self.get_hl(), self.a);
 				self.cycles_processed += 1;
@@ -907,7 +909,7 @@ impl State {
 			_ => panic!("Invalid opcode"),
 		}
 
-		TickResult::Ok()
+		TickResult::Ok
 	}
 
 	pub fn new(address_space: AddressSpace) -> State {
@@ -932,7 +934,7 @@ impl State {
 	}
 }
 
-impl fmt::Debug for State {
+impl fmt::Display for State {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		write!(f, 
 "\
@@ -940,7 +942,7 @@ a:  0x{:02x}
 bc: 0x{:02x}{:02x}
 de: 0x{:02x}{:02x}
 hl: 0x{:02x}{:02x}
-f: {:?}
+f: {}
 pc: 0x{:04x}
 sp: 0x{:04x}
 Interrupts {}abled

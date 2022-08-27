@@ -21,3 +21,6 @@ a = 3
 # In this case, the test will pass unless the program crashes.
 [add-anything]
 b = 42
+
+[debug]
+pc = 2
