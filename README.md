@@ -7,7 +7,7 @@ It includes a CPU emulator, and loads test configurations from TOML files.
 
 Within the test config you can create a heading for each test you want to run, and assign default and expected values for registers
 
-```
+```toml
 [add-one]
 b = 1
 [add-one.result]
@@ -43,7 +43,7 @@ This means that to determine which functions should run, you can assign a label 
 Sometimes you have configurations which should apply to all tests, like a global variable or the stack pointer.
 Any configurations at the top of the file (before a heading) are global and apply to all tests.
 
-```
+```toml
 sp = wStack.end
 
 [my-test]
