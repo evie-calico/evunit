@@ -35,9 +35,6 @@ The values you can initialize are:
 - sp
 
 You can assign an integer to any of these (`0x` for hex), or a label if you have a symfile loaded
-
-> symfiles are not yet supported
-
 This means that to determine which functions should run, you can assign a label to `pc`.
 
 Sometimes you have configurations which should apply to all tests, like a global variable or the stack pointer.
