@@ -51,3 +51,28 @@ b = 42
 ```
 
 If the test result is absent, the test will always pass unless it crashes.
+
+## Additional configuration options
+
+In addition to registers, there are a few other options you can configure.
+All of these can be configured globally as well as per-test.
+
+### crash-address
+
+Marks an address as a "crash", causing the test to fail if `pc` reaches it.
+This is useful for crash handler functions such as `rst $38`
+
+```toml
+crash-address = 0x38
+crash-address = "crash"
+```
+
+### timeout
+
+Sets the maximum number of cycles before a test fails.
+This is useful if you have code that tends to get stuck in infinite loops, or code which can take an extremely long time to complete.
+The default value is 65536.
+
+```toml
+timeout = 65536
+```
