@@ -1,5 +1,6 @@
+use std::fs::File;
+use std::io::Read;
 use std::io::Error;
-use std::fs;
 
 #[derive(Clone)]
 pub struct AddressSpace {
@@ -31,8 +32,8 @@ impl AddressSpace {
 		};
 	}
 
-	pub fn open(file: File) -> Result<AddressSpace> {
-		let mut rom;
+	pub fn open(mut file: File) -> Result<AddressSpace, Error> {
+		let mut rom = Vec::<u8>::new();
 		file.read_to_end(&mut rom)?;
 		if rom.len() < 0x4000 {
 			rom.resize_with(0x4000, || {0xFF} );

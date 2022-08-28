@@ -1,7 +1,8 @@
 use clap::Parser;
-use crate::cpu;
-use crate::memory;
+use evunit::cpu;
+use evunit::memory::AddressSpace;
 use std::fs::File;
+use std::io::Read;
 use std::process::exit;
 
 #[derive(PartialEq)]
@@ -9,6 +10,7 @@ enum FailureReason {
 	None,
 	Crash,
 	InvalidOpcode,
+	Timeout,
 }
 
 #[derive(Parser)]
@@ -42,6 +44,7 @@ struct TestConfig {
 	sp: Option<u16>,
 
 	crash_addresses: Vec<u16>,
+	timeout: usize,
 
 	result: Option<Box<TestConfig>>,
 }
@@ -103,6 +106,7 @@ impl TestConfig {
 			pc: None,
 			sp: None,
 			crash_addresses: vec!(),
+			timeout: 65536,
 			result: None,
 		}
 	}
@@ -161,6 +165,18 @@ fn read_config(path: &String) -> (TestConfig, Vec<TestConfig>) {
 			"f.c" => test.cf = parse_bool(value, key),
 			"pc" => test.pc = parse_u16(value, key),
 			"sp" => test.sp = parse_u16(value, key),
+			"crash-address" => {
+				if let Some(address) = parse_u16(value, key) {
+					test.crash_addresses.push(address);
+				}
+			},
+			"timeout" => {
+				if let toml::Value::Integer(value) = value {
+					test.timeout = *value as usize;
+				} else {
+					eprintln!("Value of `{key}` must be an integer.");
+				}
+			},
 			&_ => {
 				if let toml::Value::Table(value) = value {
 					let mut result_config = TestConfig::new(String::from(key));
@@ -206,27 +222,21 @@ fn read_config(path: &String) -> (TestConfig, Vec<TestConfig>) {
 
 fn main() {
 	fn open_input(path: &String) -> File {
-		if path == "-" {
-			Ok(io::stdin())
-		} else {
-			match File::open(path) {
-				Ok(file) => file,
-				Err(msg) => {
-					eprintln!("Failed to open {path}: {msg}")
-					exit(1);
-				}
+		match File::open(if path == "-" { "/dev/stdin"} else { path }) {
+			Ok(file) => file,
+			Err(msg) => {
+				eprintln!("Failed to open {path}: {msg}");
+				exit(1);
 			}
 		}
 	}
 
 	let cli = Cli::parse();
 
-    let mut stdin = io::stdin();
-
 	let rom_path = &cli.rom;
 	let config_path = &cli.config;
 
-	let address_space = AddressSpace::open(open_input(rom_path)) {
+	let address_space = match AddressSpace::open(open_input(&rom_path)) {
 		Ok(result) => result,
 		Err(error) => {
 			eprintln!("Failed to read {rom_path}: {error}");
@@ -234,8 +244,9 @@ fn main() {
 		}
 	};
 
-	let config_text = match open_input(config_path).read_to_string() {
-		Ok(result) => result,
+	let mut config_text = String::new();
+	match open_input(&config_path).read_to_string(&mut config_text) {
+		Ok(..) => {},
 		Err(error) => {
 			eprintln!("Failed to open {config_path}: {error}");
 			exit(1);
@@ -257,23 +268,30 @@ fn main() {
 		cpu_state.write(cpu_state.sp - 2, 0xFF);
 		cpu_state.sp -= 2;
 
-		let mut failure_reason = FailureReason::None;
-
-		loop {
+		let failure_reason = 'tick: loop {
 			match cpu_state.tick() {
 				cpu::TickResult::Ok => {},
-				cpu::TickResult::Halt => break,
-				cpu::TickResult::Stop => break,
+				cpu::TickResult::Halt => break FailureReason::None,
+				cpu::TickResult::Stop => break FailureReason::None,
 				cpu::TickResult::Break => { println!("{rom_path}: BREAKPOINT in {} \n{cpu_state}", test.name); },
 				cpu::TickResult::Debug => { println!("{rom_path}: DEBUG in {}\n{cpu_state}", test.name); },
-				cpu::TickResult::InvalidOpcode => {
-					failure_reason = FailureReason::InvalidOpcode;
-					break;
-				}
+				cpu::TickResult::InvalidOpcode => { break FailureReason::InvalidOpcode; }
 			}
 
-			if cpu_state.pc == 0xFFFF { break }
-		}
+			if cpu_state.pc == 0xFFFF { break FailureReason::None; }
+
+			for addr in &global_config.crash_addresses {
+				if cpu_state.pc == *addr { break 'tick FailureReason::Crash; }
+			}
+
+			for addr in &test.crash_addresses {
+				if cpu_state.pc == *addr { break 'tick FailureReason::Crash; }
+			}
+
+			if cpu_state.cycles_elapsed >= global_config.timeout || cpu_state.cycles_elapsed >= test.timeout {
+				break FailureReason::Timeout;
+			}
+		};
 
 		if failure_reason != FailureReason::None {
 			println!("\x1B[91m{}: {} failed\x1B[0m:\n{}\n{}",
@@ -281,13 +299,13 @@ fn main() {
 				match failure_reason {
 					FailureReason::InvalidOpcode => "Invalid opcode",
 					FailureReason::Crash => "Crashed",
+					FailureReason::Timeout => "Timeout",
 					FailureReason::None => "",
 				},
 				cpu_state
 			);
-		}
-
-		if let Some(result) = &test.result {
+			fail_count += 1;
+		} else if let Some(result) = &test.result {
 			match result.compare(&cpu_state) {
 				Ok(..) => println!("\x1B[92m{}: {} passed\x1B[0m", rom_path, test.name),
 				Err(msg) => {

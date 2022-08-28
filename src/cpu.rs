@@ -56,7 +56,7 @@ pub struct State {
 	pub ei: bool,
 
 	// Total number of M-Cycles that have passed during this CPU's life.
-	pub cycles_processed: usize,
+	pub cycles_elapsed: usize,
 
 	address_space: AddressSpace,
 }
@@ -90,7 +90,7 @@ impl State {
 	fn read_pc(&mut self) -> u8 {
 		let value = self.address_space.read(self.pc);
 		self.pc = u16::wrapping_add(self.pc, 1);
-		self.cycles_processed += 1;
+		self.cycles_elapsed += 1;
 		value
 	}
 
@@ -156,7 +156,7 @@ impl State {
 			cpu.f.set_n(false);
 			cpu.f.set_h((old_hl & 0xFFF + value & 0xFFF > 0xFFF) == true);
 			cpu.f.set_c(old_hl > cpu.get_hl());
-			cpu.cycles_processed += 1;
+			cpu.cycles_elapsed += 1;
 		}
 
 		fn add_a_r8(value: u8, cpu: &mut State) {
@@ -237,7 +237,7 @@ impl State {
 			cpu.write(cpu.sp, (value & 0xFF) as u8);
 			cpu.sp = u16::wrapping_sub(cpu.sp, 1);
 			cpu.write(cpu.sp, (value >> 8) as u8);
-			cpu.cycles_processed += 3;
+			cpu.cycles_elapsed += 3;
 		}
 
 		fn pop(cpu: &mut State) -> u16 {
@@ -245,7 +245,7 @@ impl State {
 			cpu.sp += 1;
 			result |= cpu.read(cpu.sp) as u16;
 			cpu.sp += 1;
-			cpu.cycles_processed += 2;
+			cpu.cycles_elapsed += 2;
 			result
 		}
 
@@ -253,7 +253,7 @@ impl State {
 			if condition {
 				push(cpu.pc + 2, cpu);
 				cpu.pc = (cpu.read_pc() as u16) | (cpu.read_pc() as u16) << 8;
-				cpu.cycles_processed += 1;
+				cpu.cycles_elapsed += 1;
 			} else {
 				cpu.read_pc();
 				cpu.read_pc();
@@ -263,19 +263,27 @@ impl State {
 		fn ret_cc(condition: bool, cpu: &mut State) {
 			if condition {
 				cpu.pc = pop(cpu);
-				cpu.cycles_processed += 2; // pop already takes care of 2 extra cycles.
+				cpu.cycles_elapsed += 2; // pop already takes care of 2 extra cycles.
 			} else {
-				cpu.cycles_processed += 1;
+				cpu.cycles_elapsed += 1;
 			}
 		}
 
 		fn jp_cc(condition: bool, cpu: &mut State) {
 			if condition {
 				cpu.pc = (cpu.read_pc() as u16) | (cpu.read_pc() as u16) << 8;
-				cpu.cycles_processed += 1;
+				cpu.cycles_elapsed += 1;
 			} else {
 				cpu.read_pc();
 				cpu.read_pc();
+			}
+		}
+
+		fn jr_cc(condition: bool, cpu: &mut State) {
+			let offset = cpu.read_pc() as i8;
+			if condition {
+				cpu.pc = i16::wrapping_add(cpu.pc as i16, offset as i16) as u16;
+				cpu.cycles_elapsed += 1;
 			}
 		}
 
@@ -287,11 +295,11 @@ impl State {
 			},
 			/* ld [bc], a */ 0x02 => {
 				self.write(self.get_bc(), self.a);
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* inc bc */ 0x03 => {
 				self.set_bc(u16::wrapping_add(self.get_bc(), 1));
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* inc b */ 0x04 => {
 				inc_r8(&mut self.b, &mut self.f);
@@ -310,18 +318,18 @@ impl State {
 				let pointer = (self.read_pc() as u16) | (self.read_pc() as u16) << 8;
 				self.write(pointer, (self.sp & 0xFF) as u8);
 				self.write(pointer + 1, (self.sp >> 8) as u8);
-				self.cycles_processed += 4;
+				self.cycles_elapsed += 4;
 			},
 			/* add hl, bc */ 0x09 => {
 				add_hl_r16(self.get_bc(), self);
 			},
 			/* ld a, [bc] */ 0x0A => {
 				self.a = self.read(self.get_bc());
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* dec bc */ 0x0B => {
 				self.set_bc(u16::wrapping_sub(self.get_bc(), 1));
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* inc c */ 0x0C => {
 				inc_r8(&mut self.c, &mut self.f);
@@ -346,11 +354,11 @@ impl State {
 			},
 			/* ld [de], a */ 0x12 => {
 				self.write(self.get_de(), self.a);
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* inc de */ 0x13 => {
 				self.set_de(u16::wrapping_add(self.get_de(), 1));
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* inc d */ 0x14 => {
 				inc_r8(&mut self.d, &mut self.f);
@@ -365,20 +373,17 @@ impl State {
 				rl_r8(&mut self.a, &mut self.f);
 				self.f.set_z(false);
 			},
-			/* jr u8 */ 0x18 => {
-				self.pc = i16::wrapping_add(self.pc as i16, self.read_pc() as i16) as u16;
-				self.cycles_processed += 1;
-			},
+			/* jr u8 */ 0x18 => { jr_cc(true, self); },
 			/* add hl, de */ 0x19 => {
 				add_hl_r16(self.get_de(), self);
 			},
 			/* ld a, [de] */ 0x1A => {
 				self.a = self.read(self.get_de());
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* dec de */ 0x1B => {
 				self.set_de(u16::wrapping_sub(self.get_de(), 1));
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* inc e */ 0x1C => {
 				inc_r8(&mut self.e, &mut self.f);
@@ -393,13 +398,7 @@ impl State {
 				rr_r8(&mut self.a, &mut self.f);
 				self.f.set_z(false);
 			},
-			/* jr nz */ 0x20 => {
-				let offset = self.read_pc() as i16;
-				if !self.f.get_z() {
-					self.pc = i16::wrapping_add(self.pc as i16, offset) as u16;
-					self.cycles_processed += 1;
-				}
-			},
+			/* jr nz */ 0x20 => { jr_cc(!self.f.get_z(), self); },
 			/* ld hl, u16 */ 0x21 => {
 				self.l = self.read_pc();
 				self.h = self.read_pc();
@@ -407,11 +406,11 @@ impl State {
 			/* ld [hli], a */ 0x22 => {
 				self.write(self.get_hl(), self.a);
 				self.set_hl(u16::wrapping_add(self.get_hl(), 1));
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* inc hl */ 0x23 => {
 				self.set_hl(u16::wrapping_add(self.get_hl(), 1));
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* inc h */ 0x24 => {
 				inc_r8(&mut self.h, &mut self.f);
@@ -425,24 +424,18 @@ impl State {
 			/* daa */ 0x27 => {
 				println!("Sorry, daa is unimplemented");
 			},
-			/* jr z */ 0x28 => {
-				let offset = self.read_pc() as i16;
-				if self.f.get_z() {
-					self.pc = i16::wrapping_add(self.pc as i16, offset) as u16;
-					self.cycles_processed += 1;
-				}
-			},
+			/* jr z */ 0x28 => { jr_cc(self.f.get_z(), self); },
 			/* add hl, hl */ 0x29 => {
 				add_hl_r16(self.get_hl(), self);
 			},
 			/* ld a, [hli] */ 0x2A => {
 				self.a = self.read(self.get_hl());
 				self.set_hl(u16::wrapping_add(self.get_hl(), 1));
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* dec hl */ 0x2B => {
 				self.set_hl(u16::wrapping_sub(self.get_hl(), 1));
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* inc l */ 0x2C => {
 				inc_r8(&mut self.l, &mut self.f);
@@ -456,65 +449,53 @@ impl State {
 			/* cpl */ 0x2F => {
 				self.a = !self.a;
 			},
-			/* jr nc */ 0x30 => {
-				let offset = self.read_pc() as i16;
-				if !self.f.get_c() {
-					self.pc = i16::wrapping_add(self.pc as i16, offset) as u16;
-					self.cycles_processed += 1;
-				}
-			},
+			/* jr nc */ 0x30 => { jr_cc(!self.f.get_c(), self); },
 			/* ld sp, u16 */ 0x31 => {
 				self.sp = self.read_pc() as u16 | (self.read_pc() as u16) << 8;
 			},
 			/* ld [hld], a */ 0x32 => {
 				self.write(self.get_hl(), self.a);
 				self.set_hl(u16::wrapping_sub(self.get_hl(), 1));
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* inc sp */ 0x33 => {
 				self.sp = u16::wrapping_add(self.sp, 1);
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* inc [hl] */ 0x34 => {
 				let mut value = self.read(self.get_hl());
 				inc_r8(&mut value, &mut self.f);
 				self.write(self.get_hl(), value);
-				self.cycles_processed += 2;
+				self.cycles_elapsed += 2;
 			},
 			/* dec [hl] */ 0x35 => {
 				let mut value = self.read(self.get_hl());
 				dec_r8(&mut value, &mut self.f);
 				self.write(self.get_hl(), value);
-				self.cycles_processed += 2;
+				self.cycles_elapsed += 2;
 			},
 			/* ld [hl], u8 */ 0x36 => {
 				let value = self.read_pc();
 				self.write(self.get_hl(), value);
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* scf */ 0x37 => {
 				self.f.set_n(false);
 				self.f.set_h(false);
 				self.f.set_c(true);
 			},
-			/* jr c */ 0x38 => {
-				let offset = self.read_pc() as i16;
-				if self.f.get_c() {
-					self.pc = i16::wrapping_add(self.pc as i16, offset) as u16;
-					self.cycles_processed += 1;
-				}
-			},
+			/* jr c */ 0x38 => { jr_cc(self.f.get_c(), self); },
 			/* add hl, sp */ 0x39 => {
 				add_hl_r16(self.sp, self);
 			},
 			/* ld a, [hld] */ 0x3A => {
 				self.a = self.read(self.get_hl());
 				self.set_hl(u16::wrapping_sub(self.get_hl(), 1));
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* dec sp */ 0x3B => {
 				self.sp = u16::wrapping_sub(self.sp, 1);
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* inc a */ 0x3C => {
 				inc_r8(&mut self.a, &mut self.f);
@@ -539,7 +520,7 @@ impl State {
 			0x45 => { self.b = self.l; },
 			0x46 => {
 				self.b = self.read(self.get_hl());
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			0x47 => { self.b = self.a; },
 			/* ld c family */
@@ -551,7 +532,7 @@ impl State {
 			0x4D => { self.c = self.l; },
 			0x4E => {
 				self.c = self.read(self.get_hl());
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			0x4F => { self.c = self.a; },
 			/* ld d family */
@@ -563,7 +544,7 @@ impl State {
 			0x55 => { self.d = self.l; },
 			0x56 => {
 				self.d = self.read(self.get_hl());
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			0x57 => { self.d = self.a; },
 			/* ld e family */
@@ -575,7 +556,7 @@ impl State {
 			0x5D => { self.e = self.l; },
 			0x5E => {
 				self.e = self.read(self.get_hl());
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			0x5F => { self.e = self.a; },
 			/* ld h family */
@@ -587,7 +568,7 @@ impl State {
 			0x65 => { self.h = self.l; },
 			0x66 => {
 				self.h = self.read(self.get_hl());
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			0x67 => { self.h = self.a; },
 			/* ld l family */
@@ -599,7 +580,7 @@ impl State {
 			0x6D => { self.l = self.l; },
 			0x6E => {
 				self.l = self.read(self.get_hl());
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			0x6F => { self.l = self.a; },
 			/* ld [hl] family */
@@ -613,7 +594,7 @@ impl State {
 			0x76 => { return TickResult::Halt; },
 			/* ld [hl], a */ 0x77 => {
 				self.write(self.get_hl(), self.a);
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* ld a family */
 			0x78 => { self.a = self.b; },
@@ -624,7 +605,7 @@ impl State {
 			0x7D => { self.a = self.l; },
 			0x7E => {
 				self.a = self.read(self.get_hl());
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			0x7F => { self.a = self.a; },
 			/* add family */
@@ -634,7 +615,7 @@ impl State {
 			0x83 => { add_a_r8(self.e, self); },
 			0x84 => { add_a_r8(self.h, self); },
 			0x85 => { add_a_r8(self.l, self); },
-			0x86 => { add_a_r8(self.read(self.get_hl()), self); self.cycles_processed += 1; }
+			0x86 => { add_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
 			0x87 => { add_a_r8(self.l, self); },
 			/* adc family */
 			0x88 => { adc_a_r8(self.b, self); },
@@ -643,7 +624,7 @@ impl State {
 			0x8B => { adc_a_r8(self.e, self); },
 			0x8C => { adc_a_r8(self.h, self); },
 			0x8D => { adc_a_r8(self.l, self); },
-			0x8E => { adc_a_r8(self.read(self.get_hl()), self); self.cycles_processed += 1; }
+			0x8E => { adc_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
 			0x8F => { adc_a_r8(self.l, self); },
 			/* sub family */
 			0x90 => { sub_a_r8(self.b, self); },
@@ -652,7 +633,7 @@ impl State {
 			0x93 => { sub_a_r8(self.e, self); },
 			0x94 => { sub_a_r8(self.h, self); },
 			0x95 => { sub_a_r8(self.l, self); },
-			0x96 => { sub_a_r8(self.read(self.get_hl()), self); self.cycles_processed += 1; }
+			0x96 => { sub_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
 			0x97 => { sub_a_r8(self.l, self); },
 			/* sbc family */
 			0x98 => { sbc_a_r8(self.b, self); },
@@ -661,7 +642,7 @@ impl State {
 			0x9B => { sbc_a_r8(self.e, self); },
 			0x9C => { sbc_a_r8(self.h, self); },
 			0x9D => { sbc_a_r8(self.l, self); },
-			0x9E => { sbc_a_r8(self.read(self.get_hl()), self); self.cycles_processed += 1; }
+			0x9E => { sbc_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
 			0x9F => { sbc_a_r8(self.l, self); },
 			/* and family */
 			0xA0 => { and_a_r8(self.b, self); },
@@ -670,7 +651,7 @@ impl State {
 			0xA3 => { and_a_r8(self.e, self); },
 			0xA4 => { and_a_r8(self.h, self); },
 			0xA5 => { and_a_r8(self.l, self); },
-			0xA6 => { and_a_r8(self.read(self.get_hl()), self); self.cycles_processed += 1; }
+			0xA6 => { and_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
 			0xA7 => { and_a_r8(self.l, self); },
 			/* xor family */
 			0xA8 => { xor_a_r8(self.b, self); },
@@ -679,7 +660,7 @@ impl State {
 			0xAB => { xor_a_r8(self.e, self); },
 			0xAC => { xor_a_r8(self.h, self); },
 			0xAD => { xor_a_r8(self.l, self); },
-			0xAE => { xor_a_r8(self.read(self.get_hl()), self); self.cycles_processed += 1; }
+			0xAE => { xor_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
 			0xAF => { xor_a_r8(self.l, self); },
 			/* or family */
 			0xB0 => { or_a_r8(self.b, self); },
@@ -688,7 +669,7 @@ impl State {
 			0xB3 => { or_a_r8(self.e, self); },
 			0xB4 => { or_a_r8(self.h, self); },
 			0xB5 => { or_a_r8(self.l, self); },
-			0xB6 => { or_a_r8(self.read(self.get_hl()), self); self.cycles_processed += 1; }
+			0xB6 => { or_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
 			0xB7 => { or_a_r8(self.l, self); },
 			/* cp family */
 			0xB8 => { cp_a_r8(self.b, self); },
@@ -697,7 +678,7 @@ impl State {
 			0xBB => { cp_a_r8(self.e, self); },
 			0xBC => { cp_a_r8(self.h, self); },
 			0xBD => { cp_a_r8(self.l, self); },
-			0xBE => { cp_a_r8(self.read(self.get_hl()), self); self.cycles_processed += 1; }
+			0xBE => { cp_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
 			0xBF => { cp_a_r8(self.l, self); },
 			/* ret nz */
 			0xC0 => { ret_cc(!self.f.get_z(), self); },
@@ -720,7 +701,7 @@ impl State {
 			0xC7 => {
 				push(self.pc, self);
 				self.pc = 0x0000;
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* ret z */
 			0xC8 => { ret_cc(self.f.get_z(), self); },
@@ -740,7 +721,7 @@ impl State {
 			0xCF => {
 				push(self.pc, self);
 				self.pc = 0x0008;
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* ret nc */
 			0xD0 => { ret_cc(!self.f.get_c(), self); },
@@ -762,7 +743,7 @@ impl State {
 			0xD7 => {
 				push(self.pc, self);
 				self.pc = 0x0010;
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* ret c */
 			0xD8 => { ret_cc(self.f.get_c(), self); },
@@ -783,13 +764,13 @@ impl State {
 			0xDF => {
 				push(self.pc, self);
 				self.pc = 0x0018;
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* ldh [u16], a */
 			0xE0 => {
 				let value = self.read_pc() as u16;
 				self.write(0xFF00 | value, self.a);
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* pop hl */
 			0xE1 => {
@@ -799,7 +780,7 @@ impl State {
 			/* ldh [c], a */
 			0xE2 => {
 				self.write(0xFF00 | self.c as u16, self.a);
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* invalid opcode */
 			/* invalid opcode */
@@ -811,7 +792,7 @@ impl State {
 			0xE7 => {
 				push(self.pc, self);
 				self.pc = 0x0020;
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* add sp, u8 */
 			0xE8 => {
@@ -822,18 +803,18 @@ impl State {
 				self.f.set_n(false);
 				self.f.set_h((old_sp & 0xFFF + value & 0xFFF > 0xFFF) == true);
 				self.f.set_c(old_sp > self.sp);
-				self.cycles_processed += 2;
+				self.cycles_elapsed += 2;
 			},
 			/* jp hl */
 			0xE9 => {
 				self.pc = self.get_hl();
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* ld [u16], a */
 			0xEA => {
 				let address = self.read_pc() as u16 | (self.read_pc() as u16) << 8;
 				self.write(address, self.a);
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* invalid opcode */
 			/* invalid opcode */
@@ -844,13 +825,13 @@ impl State {
 			0xEF => {
 				push(self.pc, self);
 				self.pc = 0x0028;
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* ldh a, [u16] */
 			0xF0 => {
 				let address = 0xFF00 | self.read_pc() as u16;
 				self.a = self.read(address);
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* pop af */
 			0xF1 => {
@@ -860,7 +841,7 @@ impl State {
 			/* ldh a, [c] */
 			0xF2 => {
 				self.a = self.read(0xFF00 | self.c as u16);
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* di */
 			0xF3 => { self.ei = false; },
@@ -873,7 +854,7 @@ impl State {
 			0xF7 => {
 				push(self.pc, self);
 				self.pc = 0x0030;
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* ld hl, sp + u8 */
 			0xF8 => {
@@ -884,7 +865,7 @@ impl State {
 				self.f.set_n(false);
 				self.f.set_h(((old_sp & 0xFFF) + (value & 0xFFF) > 0xFFF) == true);
 				self.f.set_c(old_sp > self.get_hl());
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* jp hl */
 			0xF9 => { self.sp = self.get_hl(); },
@@ -892,7 +873,7 @@ impl State {
 			0xFA => {
 				let address = (self.read_pc() as u16) | (self.read_pc() as u16) << 8;
 				self.a = self.read(address);
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			/* ei */
 			0xFB => { self.ei = true; },
@@ -904,7 +885,7 @@ impl State {
 			0xFF => {
 				push(self.pc, self);
 				self.pc = 0x0038;
-				self.cycles_processed += 1;
+				self.cycles_elapsed += 1;
 			},
 			_ => panic!("Invalid opcode"),
 		}
@@ -927,7 +908,7 @@ impl State {
 			// Users should set SP to its proper address for all tests.
 			sp: 0xE000, 
 			ei: true,
-			cycles_processed: 0,
+			cycles_elapsed: 0,
 
 			address_space,
 		}
@@ -949,6 +930,6 @@ Interrupts {}abled
 Elapsed cycles: {}",
 			self.a, self.b, self.c, self.d, self.e, self.h, self.l, self.f, self.pc, self.sp,
 			if self.ei { "en" } else { "dis" },
-			self.cycles_processed)
+			self.cycles_elapsed)
 	}
 }
