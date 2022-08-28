@@ -1,6 +1,7 @@
 use clap::Parser;
 use evunit::cpu;
 use evunit::memory::AddressSpace;
+use evunit::sym::Symfile;
 use std::fs::File;
 use std::io::Read;
 use std::process::exit;
@@ -19,6 +20,10 @@ struct Cli {
 	/// Path to the test configuration file
 	#[clap(short, long, value_parser, value_name = "PATH")]
 	config: String,
+
+	/// Path to a symfile
+	#[clap(short, long, value_parser, value_name = "PATH")]
+	symfile: Option<String>,
 
 	/// Path to the ROM
 	#[clap(value_parser, value_name = "PATH")]
@@ -112,7 +117,7 @@ impl TestConfig {
 	}
 }
 
-fn read_config(path: &String) -> (TestConfig, Vec<TestConfig>) {
+fn read_config(path: &String, symfile: &Symfile) -> (TestConfig, Vec<TestConfig>) {
 	fn parse_u8(value: &toml::Value, hint: &str) -> Option<u8> {
 		if let toml::Value::Integer(value) = value {
 			if *value < 256 && *value >= -128 {
@@ -127,13 +132,20 @@ fn read_config(path: &String) -> (TestConfig, Vec<TestConfig>) {
 		}
 	}
 
-	fn parse_u16(value: &toml::Value, hint: &str) -> Option<u16> {
+	fn parse_u16(value: &toml::Value, hint: &str, symfile: &Symfile) -> Option<u16> {
 		if let toml::Value::Integer(value) = value {
 			if *value < 65536 && *value >= -32768 {
 				Some(*value as u16)
 			} else {
 				eprintln!("Value of `{hint}` must be a 16-bit integer.");
 				None
+			}
+		} else if let toml::Value::String(value) = value {
+			if let Some((_, addr)) = symfile.symbols.get(value) {
+				Some(*addr)
+			} else {
+				eprintln!("Symbol \"{value}\" not found.");
+				exit(1);
 			}
 		} else {
 			eprintln!("Value of `{hint}` must be a 16-bit integer.");
@@ -150,7 +162,7 @@ fn read_config(path: &String) -> (TestConfig, Vec<TestConfig>) {
 		}
 	}
 
-	fn parse_configuration(test: &mut TestConfig, key: &str, value: &toml::Value) {
+	fn parse_configuration(test: &mut TestConfig, key: &str, value: &toml::Value, symfile: &Symfile) {
 		match key {
 			"a" => test.a = parse_u8(value, key),
 			"b" => test.b = parse_u8(value, key),
@@ -163,10 +175,10 @@ fn read_config(path: &String) -> (TestConfig, Vec<TestConfig>) {
 			"f.n" => test.nf = parse_bool(value, key),
 			"f.h" => test.hf = parse_bool(value, key),
 			"f.c" => test.cf = parse_bool(value, key),
-			"pc" => test.pc = parse_u16(value, key),
-			"sp" => test.sp = parse_u16(value, key),
+			"pc" => test.pc = parse_u16(value, key, symfile),
+			"sp" => test.sp = parse_u16(value, key, symfile),
 			"crash-address" => {
-				if let Some(address) = parse_u16(value, key) {
+				if let Some(address) = parse_u16(value, key, symfile) {
 					test.crash_addresses.push(address);
 				}
 			},
@@ -181,7 +193,7 @@ fn read_config(path: &String) -> (TestConfig, Vec<TestConfig>) {
 				if let toml::Value::Table(value) = value {
 					let mut result_config = TestConfig::new(String::from(key));
 					for (key, value) in value.iter() {
-						parse_configuration(&mut result_config, key, value);
+						parse_configuration(&mut result_config, key, value, &symfile);
 					}
 					test.result = Some(Box::new(result_config));
 				} else {
@@ -207,10 +219,10 @@ fn read_config(path: &String) -> (TestConfig, Vec<TestConfig>) {
 				tests.push(TestConfig::new(key.to_string()));
 				for (key, value) in value.iter() {
 					let index = tests.len() - 1;
-					parse_configuration(&mut tests[index], key, value);
+					parse_configuration(&mut tests[index], key, value, &symfile);
 				}
 			} else {
-				parse_configuration(&mut global_config, key, value);
+				parse_configuration(&mut global_config, key, value, &symfile);
 			}
 		}
 	} else {
@@ -253,7 +265,19 @@ fn main() {
 		}
 	};
 
-	let (global_config, tests) = read_config(&config_text);
+	let symfile = if let Some(symfile_path) = &cli.symfile {
+		match Symfile::open(symfile_path) {
+			Ok(result) => result,
+			Err(error) => {
+				eprintln!("Failed to read {symfile_path}: {error}");
+				exit(1);
+			}
+		}
+	} else {
+		Symfile::new()
+	};
+
+	let (global_config, tests) = read_config(&config_text, &symfile);
 	let mut fail_count = 0;
 
 	for test in &tests {

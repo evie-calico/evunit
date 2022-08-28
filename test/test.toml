@@ -1,7 +1,7 @@
 # Any configurations at the top of the file are global and apply to all tests.
 a = 1
 sp = 0xE000
-crash-address = 0x38
+crash-address = "crash"
 
 [add-one]
 b = 1
@@ -24,10 +24,10 @@ a = 3
 b = 42
 
 [debug]
-pc = 2
+pc = "DebugTest"
 
 [crash]
-pc = 4
+pc = "CrashTest"
 
 [timeout]
-pc = 5
+pc = "Timeout"
