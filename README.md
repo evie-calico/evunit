@@ -44,10 +44,10 @@ Sometimes you have configurations which should apply to all tests, like a global
 Any configurations at the top of the file (before a heading) are global and apply to all tests.
 
 ```toml
-sp = wStack.end
+sp = "wStack.end"
 
 [my-test]
-pc = MyTest
+pc = "MyTest"
 a = 42
 [my-test.result]
 b = 42
