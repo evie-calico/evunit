@@ -1,4 +1,4 @@
-# rgbunit
+# evunit
 
 This is a unit testing application for Game Boy roms.
 It includes a CPU emulator, and loads test configurations from TOML files.

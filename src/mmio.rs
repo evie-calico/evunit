@@ -1,4 +1,4 @@
-use rgbunit::reg;
+use crate::reg;
 
 pub struct Mmio {
 	p1: u8,

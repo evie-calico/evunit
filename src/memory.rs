@@ -31,8 +31,9 @@ impl AddressSpace {
 		};
 	}
 
-	pub fn open(path: &String) -> Result<AddressSpace, Error> {
-		let mut rom = fs::read(path)?;
+	pub fn open(file: File) -> Result<AddressSpace> {
+		let mut rom;
+		file.read_to_end(&mut rom)?;
 		if rom.len() < 0x4000 {
 			rom.resize_with(0x4000, || {0xFF} );
 		}

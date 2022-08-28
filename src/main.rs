@@ -1,6 +1,7 @@
 use clap::Parser;
-use rgbunit::cpu;
-use rgbunit::memory;
+use crate::cpu;
+use crate::memory;
+use std::fs::File;
 use std::process::exit;
 
 #[derive(PartialEq)]
@@ -15,11 +16,11 @@ enum FailureReason {
 struct Cli {
 	/// Path to the test configuration file
 	#[clap(short, long, value_parser, value_name = "PATH")]
-	config_path: String,
+	config: String,
 
 	/// Path to the ROM
 	#[clap(value_parser, value_name = "PATH")]
-	rom_path: String,
+	rom: String,
 }
 
 // All of these parameters are optional. This is because the initial values as
@@ -39,6 +40,8 @@ struct TestConfig {
 
 	pc: Option<u16>,
 	sp: Option<u16>,
+
+	crash_addresses: Vec<u16>,
 
 	result: Option<Box<TestConfig>>,
 }
@@ -99,6 +102,7 @@ impl TestConfig {
 			zf: None, nf: None, hf: None, cf: None,
 			pc: None,
 			sp: None,
+			crash_addresses: vec!(),
 			result: None,
 		}
 	}
@@ -201,25 +205,39 @@ fn read_config(path: &String) -> (TestConfig, Vec<TestConfig>) {
 }
 
 fn main() {
+	fn open_input(path: &String) -> File {
+		if path == "-" {
+			Ok(io::stdin())
+		} else {
+			match File::open(path) {
+				Ok(file) => file,
+				Err(msg) => {
+					eprintln!("Failed to open {path}: {msg}")
+					exit(1);
+				}
+			}
+		}
+	}
+
 	let cli = Cli::parse();
 
-	let stdin = String::from("/dev/stdin");
+    let mut stdin = io::stdin();
 
-	let rom_path = if cli.rom_path == "-" { &stdin } else { &cli.rom_path };
-	let config_path = if cli.config_path == "-" { &stdin } else { &cli.config_path };
+	let rom_path = &cli.rom;
+	let config_path = &cli.config;
 
-	let address_space = match memory::AddressSpace::open(rom_path) {
+	let address_space = AddressSpace::open(open_input(rom_path)) {
 		Ok(result) => result,
 		Err(error) => {
-			eprintln!("Failed to open {}: {}", rom_path, error);
+			eprintln!("Failed to read {rom_path}: {error}");
 			exit(1);
 		}
 	};
 
-	let config_text = match std::fs::read_to_string(config_path) {
+	let config_text = match open_input(config_path).read_to_string() {
 		Ok(result) => result,
 		Err(error) => {
-			eprintln!("Failed to open {}: {}", rom_path, error);
+			eprintln!("Failed to open {config_path}: {error}");
 			exit(1);
 		}
 	};
