@@ -44,7 +44,7 @@ struct TestConfig {
 	sp: Option<u16>,
 
 	crash_addresses: Vec<u16>,
-	enable_breapoints: bool,
+	enable_breakpoints: bool,
 	timeout: usize,
 
 	result: Option<Box<TestConfig>>,
@@ -116,7 +116,7 @@ impl TestConfig {
 			pc: None,
 			sp: None,
 			crash_addresses: vec!(),
-			enable_breakpoints = true,
+			enable_breakpoints: true,
 			timeout: 65536,
 			result: None,
 		}
@@ -191,7 +191,7 @@ fn read_config(path: &String, symfile: &Symfile) -> (TestConfig, Vec<TestConfig>
 					test.crash_addresses.push(address);
 				}
 			},
-			"enable-breakpoints" => test.enable_breakpoints = parse_bool(value, key),
+			"enable-breakpoints" => test.enable_breakpoints = parse_bool(value, key).unwrap(),
 			"timeout" => {
 				if let toml::Value::Integer(value) = value {
 					test.timeout = *value as usize;
@@ -316,14 +316,15 @@ fn main() {
 				cpu::TickResult::Halt => break FailureReason::None,
 				cpu::TickResult::Stop => break FailureReason::None,
 				cpu::TickResult::Break => {
-					if global.enable_breakpoints {
+					if global_config.enable_breakpoints {
 						println!("{rom_path}: BREAKPOINT in {} \n{cpu_state}", test.name);						
 					}
 				},
 				cpu::TickResult::Debug => {
-					if global.enable_breakpoints {
-						println!("{rom_path}: DEBUG in {}\n{cpu_state}", test.name); },
+					if global_config.enable_breakpoints {
+						println!("{rom_path}: DEBUG in {}\n{cpu_state}", test.name);
 					}
+				},
 				cpu::TickResult::InvalidOpcode => { break FailureReason::InvalidOpcode; }
 			}
 
