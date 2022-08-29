@@ -6,14 +6,6 @@ use std::fs::File;
 use std::io::Read;
 use std::process::exit;
 
-#[derive(PartialEq)]
-enum FailureReason {
-	None,
-	Crash,
-	InvalidOpcode,
-	Timeout,
-}
-
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Cli {
@@ -52,6 +44,7 @@ struct TestConfig {
 	sp: Option<u16>,
 
 	crash_addresses: Vec<u16>,
+	enable_breapoints: bool,
 	timeout: usize,
 
 	result: Option<Box<TestConfig>>,
@@ -123,6 +116,7 @@ impl TestConfig {
 			pc: None,
 			sp: None,
 			crash_addresses: vec!(),
+			enable_breakpoints = true,
 			timeout: 65536,
 			result: None,
 		}
@@ -197,6 +191,7 @@ fn read_config(path: &String, symfile: &Symfile) -> (TestConfig, Vec<TestConfig>
 					test.crash_addresses.push(address);
 				}
 			},
+			"enable-breakpoints" => test.enable_breakpoints = parse_bool(value, key),
 			"timeout" => {
 				if let toml::Value::Integer(value) = value {
 					test.timeout = *value as usize;
@@ -245,6 +240,14 @@ fn read_config(path: &String, symfile: &Symfile) -> (TestConfig, Vec<TestConfig>
 	}
 
 	(global_config, tests)
+}
+
+#[derive(PartialEq)]
+enum FailureReason {
+	None,
+	Crash,
+	InvalidOpcode,
+	Timeout,
 }
 
 fn main() {
@@ -312,8 +315,15 @@ fn main() {
 				cpu::TickResult::Ok => {},
 				cpu::TickResult::Halt => break FailureReason::None,
 				cpu::TickResult::Stop => break FailureReason::None,
-				cpu::TickResult::Break => { println!("{rom_path}: BREAKPOINT in {} \n{cpu_state}", test.name); },
-				cpu::TickResult::Debug => { println!("{rom_path}: DEBUG in {}\n{cpu_state}", test.name); },
+				cpu::TickResult::Break => {
+					if global.enable_breakpoints {
+						println!("{rom_path}: BREAKPOINT in {} \n{cpu_state}", test.name);						
+					}
+				},
+				cpu::TickResult::Debug => {
+					if global.enable_breakpoints {
+						println!("{rom_path}: DEBUG in {}\n{cpu_state}", test.name); },
+					}
 				cpu::TickResult::InvalidOpcode => { break FailureReason::InvalidOpcode; }
 			}
 

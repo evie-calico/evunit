@@ -57,6 +57,17 @@ crash = 0x38
 crash = "crash"
 ```
 
+### enable-breakpoints
+
+Enables or disables printing register info after executing `ld b, b` and `ld d, d`.
+Enabled by default.
+This configuration can only be used globally.
+
+```toml
+enable-breakpoints = true
+enable-breakpoints = false
+```
+
 ### timeout
 
 Sets the maximum number of cycles before a test fails.
