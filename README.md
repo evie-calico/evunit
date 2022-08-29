@@ -47,14 +47,14 @@ If the test result is absent, the test will always pass unless it crashes.
 In addition to registers, there are a few other options you can configure.
 All of these can be configured globally as well as per-test.
 
-### crash-address
+### crash
 
 Marks an address as a "crash", causing the test to fail if `pc` reaches it.
 This is useful for crash handler functions such as `rst $38`
 
 ```toml
-crash-address = 0x38
-crash-address = "crash"
+crash = 0x38
+crash = "crash"
 ```
 
 ### timeout

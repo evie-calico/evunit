@@ -192,7 +192,7 @@ fn read_config(path: &String, symfile: &Symfile) -> (TestConfig, Vec<TestConfig>
 			"hl" => test.hl = parse_u16(value, key, symfile),
 			"pc" => test.pc = parse_u16(value, key, symfile),
 			"sp" => test.sp = parse_u16(value, key, symfile),
-			"crash-address" => {
+			"crash" => {
 				if let Some(address) = parse_u16(value, key, symfile) {
 					test.crash_addresses.push(address);
 				}
