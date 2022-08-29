@@ -20,22 +20,12 @@ a = 3
 ```
 
 The values you can initialize are:
-- a
-- b
-- c
-- d
-- e
-- h
-- l
-- z.f
-- z.n
-- z.h
-- z.c
-- pc
-- sp
+- a, b, c, d, e, h, l (8-bit registers)
+- bc, de, hl, pc, sp (16-bit registers)
+- z.f, z.n, z.h, z.c (Boolean flags)
 
-You can assign an integer to any of these (`0x` for hex), or a label if you have a symfile loaded
-This means that to determine which functions should run, you can assign a label to `pc`.
+You can assign an integer (or `true`/`false` for flags) to any of these (`0x` for hex), or a label if you have a symfile loaded.
+To determine which functions should run, you can assign a label to `pc`.
 
 Sometimes you have configurations which should apply to all tests, like a global variable or the stack pointer.
 Any configurations at the top of the file (before a heading) are global and apply to all tests.

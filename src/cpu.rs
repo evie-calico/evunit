@@ -616,7 +616,7 @@ impl State {
 			0x84 => { add_a_r8(self.h, self); },
 			0x85 => { add_a_r8(self.l, self); },
 			0x86 => { add_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
-			0x87 => { add_a_r8(self.l, self); },
+			0x87 => { add_a_r8(self.a, self); },
 			/* adc family */
 			0x88 => { adc_a_r8(self.b, self); },
 			0x89 => { adc_a_r8(self.c, self); },
@@ -625,7 +625,7 @@ impl State {
 			0x8C => { adc_a_r8(self.h, self); },
 			0x8D => { adc_a_r8(self.l, self); },
 			0x8E => { adc_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
-			0x8F => { adc_a_r8(self.l, self); },
+			0x8F => { adc_a_r8(self.a, self); },
 			/* sub family */
 			0x90 => { sub_a_r8(self.b, self); },
 			0x91 => { sub_a_r8(self.c, self); },
@@ -634,7 +634,7 @@ impl State {
 			0x94 => { sub_a_r8(self.h, self); },
 			0x95 => { sub_a_r8(self.l, self); },
 			0x96 => { sub_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
-			0x97 => { sub_a_r8(self.l, self); },
+			0x97 => { sub_a_r8(self.a, self); },
 			/* sbc family */
 			0x98 => { sbc_a_r8(self.b, self); },
 			0x99 => { sbc_a_r8(self.c, self); },
@@ -643,7 +643,7 @@ impl State {
 			0x9C => { sbc_a_r8(self.h, self); },
 			0x9D => { sbc_a_r8(self.l, self); },
 			0x9E => { sbc_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
-			0x9F => { sbc_a_r8(self.l, self); },
+			0x9F => { sbc_a_r8(self.a, self); },
 			/* and family */
 			0xA0 => { and_a_r8(self.b, self); },
 			0xA1 => { and_a_r8(self.c, self); },
@@ -652,7 +652,7 @@ impl State {
 			0xA4 => { and_a_r8(self.h, self); },
 			0xA5 => { and_a_r8(self.l, self); },
 			0xA6 => { and_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
-			0xA7 => { and_a_r8(self.l, self); },
+			0xA7 => { and_a_r8(self.a, self); },
 			/* xor family */
 			0xA8 => { xor_a_r8(self.b, self); },
 			0xA9 => { xor_a_r8(self.c, self); },
@@ -661,7 +661,7 @@ impl State {
 			0xAC => { xor_a_r8(self.h, self); },
 			0xAD => { xor_a_r8(self.l, self); },
 			0xAE => { xor_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
-			0xAF => { xor_a_r8(self.l, self); },
+			0xAF => { xor_a_r8(self.a, self); },
 			/* or family */
 			0xB0 => { or_a_r8(self.b, self); },
 			0xB1 => { or_a_r8(self.c, self); },
@@ -670,7 +670,7 @@ impl State {
 			0xB4 => { or_a_r8(self.h, self); },
 			0xB5 => { or_a_r8(self.l, self); },
 			0xB6 => { or_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
-			0xB7 => { or_a_r8(self.l, self); },
+			0xB7 => { or_a_r8(self.a, self); },
 			/* cp family */
 			0xB8 => { cp_a_r8(self.b, self); },
 			0xB9 => { cp_a_r8(self.c, self); },
@@ -679,7 +679,7 @@ impl State {
 			0xBC => { cp_a_r8(self.h, self); },
 			0xBD => { cp_a_r8(self.l, self); },
 			0xBE => { cp_a_r8(self.read(self.get_hl()), self); self.cycles_elapsed += 1; }
-			0xBF => { cp_a_r8(self.l, self); },
+			0xBF => { cp_a_r8(self.a, self); },
 			/* ret nz */
 			0xC0 => { ret_cc(!self.f.get_z(), self); },
 			/* pop bc */

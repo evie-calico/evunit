@@ -45,6 +45,9 @@ struct TestConfig {
 	hf: Option<bool>,
 	cf: Option<bool>,
 
+	bc: Option<u16>,
+	de: Option<u16>,
+	hl: Option<u16>,
 	pc: Option<u16>,
 	sp: Option<u16>,
 
@@ -68,6 +71,9 @@ impl TestConfig {
 		if let Some(value) = self.nf { cpu.f.set_n(value) }
 		if let Some(value) = self.hf { cpu.f.set_h(value) }
 		if let Some(value) = self.cf { cpu.f.set_c(value) }
+		if let Some(value) = self.bc { cpu.set_bc(value) }
+		if let Some(value) = self.de { cpu.set_de(value) }
+		if let Some(value) = self.hl { cpu.set_hl(value) }
 		if let Some(value) = self.pc { cpu.pc = value }
 		if let Some(value) = self.sp { cpu.sp = value }
 	}
@@ -90,6 +96,9 @@ impl TestConfig {
 		if let Some(value) = self.nf { if cpu.f.get_n() != value { add_err(&mut err_msg, "f.n", cpu.f.get_n(), value) } }
 		if let Some(value) = self.hf { if cpu.f.get_h() != value { add_err(&mut err_msg, "f.h", cpu.f.get_h(), value) } }
 		if let Some(value) = self.cf { if cpu.f.get_c() != value { add_err(&mut err_msg, "f.c", cpu.f.get_c(), value) } }
+		if let Some(value) = self.bc { if cpu.get_bc() != value { add_err(&mut err_msg, "bc", cpu.get_bc(), value) } }
+		if let Some(value) = self.de { if cpu.get_de() != value { add_err(&mut err_msg, "de", cpu.get_de(), value) } }
+		if let Some(value) = self.hl { if cpu.get_hl() != value { add_err(&mut err_msg, "hl", cpu.get_hl(), value) } }
 		if let Some(value) = self.pc { if cpu.pc != value { add_err(&mut err_msg, "pc", cpu.pc, value) } }
 		if let Some(value) = self.sp { if cpu.sp != value { add_err(&mut err_msg, "sp", cpu.sp, value) } }
 
@@ -108,6 +117,9 @@ impl TestConfig {
 			d: None, e: None,
 			h: None, l: None,
 			zf: None, nf: None, hf: None, cf: None,
+			bc: None,
+			de: None,
+			hl: None,
 			pc: None,
 			sp: None,
 			crash_addresses: vec!(),
@@ -175,6 +187,9 @@ fn read_config(path: &String, symfile: &Symfile) -> (TestConfig, Vec<TestConfig>
 			"f.n" => test.nf = parse_bool(value, key),
 			"f.h" => test.hf = parse_bool(value, key),
 			"f.c" => test.cf = parse_bool(value, key),
+			"bc" => test.bc = parse_u16(value, key, symfile),
+			"de" => test.de = parse_u16(value, key, symfile),
+			"hl" => test.hl = parse_u16(value, key, symfile),
 			"pc" => test.pc = parse_u16(value, key, symfile),
 			"sp" => test.sp = parse_u16(value, key, symfile),
 			"crash-address" => {
