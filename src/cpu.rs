@@ -58,7 +58,7 @@ pub struct State {
 	// Total number of M-Cycles that have passed during this CPU's life.
 	pub cycles_elapsed: usize,
 
-	address_space: AddressSpace,
+	pub address_space: AddressSpace,
 }
 
 impl State {

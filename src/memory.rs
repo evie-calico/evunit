@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::Read;
+use std::io::Write;
 use std::io::Error;
 
 #[derive(Clone)]
@@ -45,5 +46,29 @@ impl AddressSpace {
 			wram: [0; 0x1000 * 8],
 			oam: [0; 0x100],
 		})
+	}
+
+	pub fn dump(&self, mut file: File) -> Result<(), Error> {
+		let mut output = String::from("");
+
+		let mut address = 0x8000;
+		output += "[VRAM]";
+		for byte in self.vram {
+			if address % 16 == 0 { output += format!("\n0x{address:x}:").as_str(); }
+			output += format!(" 0x{byte:x}").as_str();
+			address += 1;
+		}
+		output += "\n";
+
+		let mut address = 0xC000;
+		output += "[WRAM 0]";
+		for i in 0..0x2000 {
+			if address % 16 == 0 { output += format!("\n0x{address:x}:").as_str(); }
+			output += format!(" 0x{:x}", self.vram[i]).as_str();
+			address += 1;
+		}
+		output += "\n";
+
+		file.write_all(output.as_bytes())
 	}
 }

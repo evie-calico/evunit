@@ -13,14 +13,25 @@ struct Cli {
 	#[clap(short, long, value_parser, value_name = "PATH")]
 	config: String,
 
-	/// Path to a symfile
+	/// Directory where crash dumps should be placed. Each dump contains the entire address space in a text file, seperated by memory type.
 	#[clap(short, long, value_parser, value_name = "PATH")]
+	dump_dir: Option<String>,
+
+	/// Silence passing tests. Pass -s again to silence all output unless an error occurs.
+	#[clap(short, long, action = clap::ArgAction::Count)]
+	silent: u8,
+
+	/// Path to a symfile
+	#[clap(short = 'n', long, value_parser, value_name = "PATH")]
 	symfile: Option<String>,
 
 	/// Path to the ROM
 	#[clap(value_parser, value_name = "PATH")]
 	rom: String,
 }
+
+const SILENCE_PASSING: u8 = 1; // Silences passing messages when tests succeed.
+const SILENCE_ALL: u8 = 2; // Silences all output unless an error occurs.
 
 // All of these parameters are optional. This is because the initial values as
 // well as the resulting values do not all need to be present, and in the case
@@ -354,20 +365,45 @@ fn main() {
 				},
 				cpu_state
 			);
-			fail_count += 1;
 		} else if let Some(result) = &test.result {
 			match result.compare(&cpu_state) {
-				Ok(..) => println!("\x1B[92m{}: {} passed\x1B[0m", rom_path, test.name),
+				Ok(..) => {
+					if cli.silent < SILENCE_PASSING {
+						println!("\x1B[92m{}: {} passed\x1B[0m", rom_path, test.name);
+					}
+					continue;
+				},
 				Err(msg) => {
 					print!("\x1B[91m{}: {} failed\x1B[0m:\n{}", rom_path, test.name, msg);
-					fail_count += 1;
 				}
 			}
 		} else {
-			println!("\x1B[92m{}: {} passed\x1B[0m", rom_path, test.name);
+			if cli.silent < SILENCE_PASSING {
+				println!("\x1B[92m{}: {} passed\x1B[0m", rom_path, test.name);
+			}
+			continue; // This continue skips failure handling.
 		}
+		
+		if let Some(ref dump_dir) = cli.dump_dir {
+			let path = String::from(dump_dir) + format!("/{}.txt", test.name).as_str();
+
+			match File::create(&path) {
+				Ok(file) => {
+					match cpu_state.address_space.dump(file) {
+						Ok(..) => {},
+						Err(msg) => eprintln!("Failed to write dump to {path}: {msg}")
+					}
+				},
+				Err(msg) => eprintln!("Failed to open {path}: {msg}")
+			}
+		}
+		fail_count += 1;
 	}
 
-	println!("{}: All tests complete. {}/{} passed.", rom_path, tests.len() - fail_count, tests.len());
+	// When in SILENCE_ALL only print the final message if a test failed.
+	if !(cli.silent >= SILENCE_ALL) || fail_count != 0 {
+		println!("{}: All tests complete. {}/{} passed.", rom_path, tests.len() - fail_count, tests.len());
+	}
+
 	if fail_count > 0 { exit(1); }
 }

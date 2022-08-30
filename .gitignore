@@ -1,3 +1,4 @@
 /target
 *.gb
 *.sym
+dump*
