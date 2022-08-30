@@ -123,7 +123,7 @@ impl State {
 
 		fn rl_r8(register: &mut u8, flags: &mut Flags) {
 			let old_register = *register;
-			*register = u8::rotate_left(*register, 1);
+			*register = register.rotate_left(1) | flags.get_c() as u8;
 			flags.set_z(*register == 0);
 			flags.set_n(false);
 			flags.set_h(false);
@@ -141,7 +141,7 @@ impl State {
 
 		fn rr_r8(register: &mut u8, flags: &mut Flags) {
 			let old_register = *register;
-			*register = u8::rotate_right(*register, 1);
+			*register = register.rotate_right(1) | (flags.get_c() as u8) << 7;
 			flags.set_z(*register == 0);
 			flags.set_n(false);
 			flags.set_h(false);
@@ -167,7 +167,7 @@ impl State {
 		}
 
 		fn swap_r8(register: u8, flags: &mut Flags) -> u8 {
-			let result = u8::rotate_right(register, 4);
+			let result = register.rotate_right(4);
 			flags.set_z(result == 0);
 			flags.set_n(false);
 			flags.set_h(false);
@@ -207,7 +207,7 @@ impl State {
 			cpu.a = u8::wrapping_add(cpu.a, value);
 			cpu.f.set_z(cpu.a == 0);
 			cpu.f.set_n(false);
-			cpu.f.set_h((old_a & 0xF + value & 0xF > 0xF) == true);
+			cpu.f.set_h(((old_a & 0xF) + (value & 0xF) > 0xF) == true);
 			cpu.f.set_c(old_a > cpu.a);
 		}
 
@@ -228,7 +228,7 @@ impl State {
 			cpu.f.set_z(cpu.a == 0);
 			cpu.f.set_n(true);
 			cpu.f.set_h((((old_a & 0xF) as i8) < ((value & 0xF) as i8)) == true);
-			cpu.f.set_c(value > cpu.a);
+			cpu.f.set_c(old_a < cpu.a);
 		}
 
 		fn sbc_a_r8(value: u8, cpu: &mut State) {
@@ -465,7 +465,16 @@ impl State {
 				self.h = self.read_pc();
 			},
 			/* daa */ 0x27 => {
-				println!("Sorry, daa is unimplemented");
+				if !self.f.get_n() && self.a >= 0x9A { self.f.set_c(true); }
+				if !self.f.get_n() && self.a & 0xF >= 0xA { self.f.set_h(true); }
+				let adjustment = if self.f.get_h() { 0x6 } else { 0 } | if self.f.get_c() { 0x60 } else { 0 };
+				if self.f.get_n() {
+					self.a = u8::wrapping_sub(self.a, adjustment);
+				} else {
+					self.a = u8::wrapping_add(self.a, adjustment);
+				}
+				self.f.set_z(self.a == 0);
+				self.f.set_h(false);
 			},
 			/* jr z */ 0x28 => { jr_cc(self.f.get_z(), self); },
 			/* add hl, hl */ 0x29 => {
@@ -831,17 +840,17 @@ impl State {
 				},
 				0x2F => { sra_r8(self.a, &mut self.f); },
 				/* swap r8 */
-				0x30 => { swap_r8(self.b, &mut self.f); },
-				0x31 => { swap_r8(self.c, &mut self.f); },
-				0x32 => { swap_r8(self.d, &mut self.f); },
-				0x33 => { swap_r8(self.e, &mut self.f); },
-				0x34 => { swap_r8(self.h, &mut self.f); },
-				0x35 => { swap_r8(self.l, &mut self.f); },
+				0x30 => { self.b = swap_r8(self.b, &mut self.f); },
+				0x31 => { self.c = swap_r8(self.c, &mut self.f); },
+				0x32 => { self.d = swap_r8(self.d, &mut self.f); },
+				0x33 => { self.e = swap_r8(self.e, &mut self.f); },
+				0x34 => { self.h = swap_r8(self.h, &mut self.f); },
+				0x35 => { self.l = swap_r8(self.l, &mut self.f); },
 				0x36 => {
 					self.address_space.write(self.get_hl(), swap_r8(self.address_space.read(self.get_hl()), &mut self.f));
 					self.cycles_elapsed += 1;
 				},
-				0x37 => { swap_r8(self.a, &mut self.f); },
+				0x37 => { self.a = swap_r8(self.a, &mut self.f); },
 				/* srl r8 */
 				0x38 => { self.b = srl_r8(self.b, &mut self.f); },
 				0x39 => { self.c = srl_r8(self.c, &mut self.f); },
