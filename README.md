@@ -42,6 +42,36 @@ b = 42
 
 If the test result is absent, the test will always pass unless it crashes.
 
+Creating an exhaustive set of tests by hand might be tedious, so remember that you an always generate tests in a bash script or any other language of your choice.
+
+```bash
+for i in {0..7}
+do
+	echo "
+[my-test$i]
+pc = \"GetBitA\"
+a = $i
+[my-test$i.result]
+a = $((1 << $i))
+"
+done
+"
+```
+
+Then pipe this into evunit.
+Note that evunit does not currently support opening `-` as stdin, so `/dev/stdin` must be used instead.
+This is guaranteed to work without issues.
+
+```
+bash config.bash | evunit -c /dev/stdin bin/rom.gb
+```
+
+And you can always use `cat` to add a handwritten file into the mix.
+
+```
+bash config.bash | cat config.toml - | evunit -c /dev/stdin bin/rom.gb
+```
+
 ## Additional configuration options
 
 In addition to registers, there are a few other options you can configure.
