@@ -54,7 +54,7 @@ pub enum TickResult {
 	InvalidOpcode,
 }
 
-pub struct State {
+pub struct State<S: AddressSpace> {
 	// Primary CPU Registers
 	pub a: u8,
 	pub f: Flags,
@@ -72,10 +72,31 @@ pub struct State {
 	// Total number of M-Cycles that have passed during this CPU's life.
 	pub cycles_elapsed: usize,
 
-	pub address_space: AddressSpace,
+	pub address_space: S,
 }
 
-impl State {
+impl<S: AddressSpace> State<S> {
+	pub fn new(address_space: S) -> Self {
+		Self {
+			a: 0,
+			f: Flags { value: 0 },
+			b: 0,
+			c: 0,
+			d: 0,
+			e: 0,
+			h: 0,
+			l: 0,
+			pc: 0,
+			// SP defaults to the top of WRAM to minimize conflicts.
+			// Users should set SP to its proper address for all tests.
+			sp: 0xE000,
+			ei: true,
+			cycles_elapsed: 0,
+
+			address_space,
+		}
+	}
+
 	pub fn get_af(&self) -> u16 {
 		u16::from_be_bytes([self.a, self.f.value])
 	}
@@ -897,27 +918,6 @@ impl State {
 
 		TickResult::Ok
 	}
-
-	pub fn new(address_space: AddressSpace) -> State {
-		State {
-			a: 0,
-			f: Flags { value: 0 },
-			b: 0,
-			c: 0,
-			d: 0,
-			e: 0,
-			h: 0,
-			l: 0,
-			pc: 0,
-			// SP defaults to the top of WRAM to minimize conflicts.
-			// Users should set SP to its proper address for all tests.
-			sp: 0xE000,
-			ei: true,
-			cycles_elapsed: 0,
-
-			address_space,
-		}
-	}
 }
 
 #[derive(Clone, Copy, Default)]
@@ -936,7 +936,7 @@ impl BitOrAssign<(u8, bool)> for CarryRetainer {
 	}
 }
 
-impl fmt::Display for State {
+impl<S: AddressSpace> fmt::Display for State<S> {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		write!(
 			f,
