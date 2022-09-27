@@ -45,6 +45,7 @@ impl fmt::Display for Flags {
 	}
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum TickResult {
 	Ok,
 	Break,
@@ -171,11 +172,11 @@ impl<S: AddressSpace> State<S> {
 	}
 
 	fn add_hl_r16(&mut self, operand: u16) {
-		let value = self.get_hl().wrapping_add(operand);
-		self.set_hl(self.get_hl().wrapping_add(value));
+		let (value, carry) = self.get_hl().overflowing_add(operand);
+		self.set_hl(value);
+		self.f.set_c(carry);
 		self.f.set_n(false);
-		self.f.set_h(value & 0xFFF < operand & 0xFFF);
-		self.f.set_c(value > self.get_hl());
+		self.f.set_h(self.get_hl() & 0xFFF < operand & 0xFFF);
 		self.cycles_elapsed += 1;
 	}
 
@@ -291,22 +292,39 @@ impl<S: AddressSpace> State<S> {
 
 	fn sla(&mut self, reg_id: u8) {
 		let value = self.get_r8_by_id(reg_id);
-		self.set_r8_by_id(reg_id, value.wrapping_shl(1));
+		self.f.set_c(value & 0x80 != 0);
+		let value = value.wrapping_shl(1);
+		self.set_r8_by_id(reg_id, value);
+		self.f.set_z(value == 0);
+		self.f.set_h(false);
+		self.f.set_n(false);
 	}
 
 	fn sra(&mut self, reg_id: u8) {
 		let value = self.get_r8_by_id(reg_id);
-		self.set_r8_by_id(reg_id, value.wrapping_shr(1) | (value & 0x80));
+		self.f.set_c(value & 0x01 != 0);
+		let value = value.wrapping_shr(1) | (value & 0x80);
+		self.set_r8_by_id(reg_id, value);
+		self.f.set_z(value == 0);
+		self.f.set_h(false);
+		self.f.set_n(false);
 	}
 
 	fn swap(&mut self, reg_id: u8) {
-		let value = self.get_r8_by_id(reg_id);
-		self.set_r8_by_id(reg_id, value.rotate_left(4));
+		let value = self.get_r8_by_id(reg_id).rotate_left(4);
+		self.set_r8_by_id(reg_id, value);
+		self.f.value = 0;
+		self.f.set_z(value == 0);
 	}
 
 	fn srl(&mut self, reg_id: u8) {
 		let value = self.get_r8_by_id(reg_id);
-		self.set_r8_by_id(reg_id, value.wrapping_shr(1));
+		self.f.set_c(value & 0x01 != 0);
+		let value = value.wrapping_shr(1);
+		self.set_r8_by_id(reg_id, value);
+		self.f.set_z(value == 0);
+		self.f.set_h(false);
+		self.f.set_n(false);
 	}
 
 	fn ret_cc(&mut self, condition: bool) {
@@ -390,7 +408,7 @@ impl<S: AddressSpace> State<S> {
 				let value = self.get_r8_by_id(reg_id).wrapping_sub(1);
 				self.set_r8_by_id(reg_id, value);
 				self.f.set_z(value == 0);
-				self.f.set_n(false);
+				self.f.set_n(true);
 				self.f.set_h(value & 0xF == 0xF);
 			}
 			/* ld r8, u8 */
@@ -963,5 +981,622 @@ Elapsed cycles: {}",
 			if self.ei { "en" } else { "dis" },
 			self.cycles_elapsed
 		)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use std::{cell::RefCell, fmt::Debug};
+
+	use super::*;
+
+	static REG_NAMES: [&str; 8] = ["b", "c", "d", "e", "h", "l", "[hl]", "a"];
+	static OP_NAMES: [&str; 8] = ["add", "adc", "sub", "sbc", "and", "xor", "or", "cp"];
+
+	#[derive(Debug, Clone, Copy)]
+	struct DummyAddrSpace;
+	impl AddressSpace for DummyAddrSpace {
+		fn read(&self, _address: u16) -> u8 {
+			0
+		}
+		fn write(&mut self, _address: u16, _value: u8) {
+			/* Nothing. */
+		}
+	}
+
+	#[derive(Debug, Clone, Copy)]
+	struct TinyAddrSpace<'a, const N: usize>(&'a RefCell<[u8; N]>);
+	impl<const N: usize> AddressSpace for TinyAddrSpace<'_, N> {
+		fn read(&self, address: u16) -> u8 {
+			self.0.borrow()[address as usize % N]
+		}
+		fn write(&mut self, address: u16, value: u8) {
+			self.0.borrow_mut()[address as usize % N] = value;
+		}
+	}
+
+	fn assert_flags<S: AddressSpace, M: Debug>(
+		cpu: &State<S>,
+		z: bool,
+		n: bool,
+		h: bool,
+		c: bool,
+		msg: M,
+	) {
+		let assert_flag = |flag, expected, ch| {
+			assert!(
+				flag == expected,
+				"{} is {} for {:?}, it shouldn't",
+				ch,
+				if flag { "set" } else { "reset" },
+				msg
+			)
+		};
+		assert_flag(cpu.f.get_z(), z, 'Z');
+		assert_flag(cpu.f.get_n(), n, 'N');
+		assert_flag(cpu.f.get_h(), h, 'H');
+		assert_flag(cpu.f.get_c(), c, 'C');
+	}
+
+	#[test]
+	fn add_hl_16() {
+		let mut cpu = State::new(DummyAddrSpace);
+		cpu.f.set_z(false);
+
+		for hl in 0..=u16::MAX {
+			// Let's assume that the function is symmetrical, otherwise the test takes even more forever.
+			for operand in hl..=u16::MAX {
+				cpu.cycles_elapsed = 0;
+				let params = (hl, operand);
+				cpu.set_hl(hl);
+
+				cpu.add_hl_r16(operand);
+
+				let h = (hl & 0xFFF) + (operand & 0xFFF) > 0xFFF;
+				let c = hl as u32 + operand as u32 > 0xFFFF;
+				assert_flags(&cpu, false, false, h, c, &params);
+				assert_eq!(cpu.get_hl(), hl.wrapping_add(operand), "{:?}", params);
+				assert_eq!(cpu.cycles_elapsed, 1);
+			}
+		}
+	}
+
+	#[test]
+	fn add() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for a in 0..=u8::MAX {
+			for operand in 0..=u8::MAX {
+				for carry_in in [false, true] {
+					cpu.cycles_elapsed = 0;
+					let params = (a, operand, carry_in);
+					cpu.a = a;
+					cpu.f.set_n(true);
+
+					cpu.add(operand, carry_in);
+
+					let result = a.wrapping_add(operand).wrapping_add(carry_in.into());
+					let z = result == 0;
+					let h = (a & 0xF) + (operand & 0xF) + carry_in as u8 > 0xF;
+					let c = a as u16 + operand as u16 + carry_in as u16 > 0xFF;
+					assert_flags(&cpu, z, false, h, c, &params);
+					assert_eq!(cpu.a, result, "{:?}", params);
+					assert_eq!(cpu.cycles_elapsed, 0);
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn sub() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for a in 0..=u8::MAX {
+			for operand in 0..=u8::MAX {
+				for carry_in in [false, true] {
+					cpu.cycles_elapsed = 0;
+					let params = (a, operand, carry_in);
+					cpu.a = a;
+					cpu.f.set_n(false);
+
+					cpu.sub(operand, carry_in);
+
+					let result = a.wrapping_sub(operand).wrapping_sub(carry_in.into());
+					let z = result == 0;
+					let h = (a & 0xF) as i8 - (operand & 0xF) as i8 - (carry_in as i8) < 0;
+					let c = (a as i32 - operand as i32 - carry_in as i32) < 0;
+					assert_flags(&cpu, z, true, h, c, &params);
+					assert_eq!(cpu.a, result, "{:?}", params);
+					assert_eq!(cpu.cycles_elapsed, 0);
+				}
+			}
+		}
+	}
+
+	// Bit ops are trivial enough to skip testing them
+
+	#[test]
+	fn cp() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for a in 0..=u8::MAX {
+			for operand in 0..=u8::MAX {
+				cpu.cycles_elapsed = 0;
+				let params = (a, operand);
+				cpu.a = a;
+				cpu.f.set_n(false);
+
+				cpu.cp(operand);
+
+				let z = a.wrapping_sub(operand) == 0;
+				let h = (a & 0xF) as i8 - ((operand & 0xF) as i8) < 0;
+				let c = (a as i32 - operand as i32) < 0;
+				assert_flags(&cpu, z, true, h, c, &params);
+				assert_eq!(cpu.a, a, "{:?}", params);
+				assert_eq!(cpu.cycles_elapsed, 0);
+			}
+		}
+	}
+
+	#[test]
+	fn rlc() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for b in 0..=u8::MAX {
+			cpu.cycles_elapsed = 0;
+			let params = b;
+			cpu.b = b;
+
+			cpu.rlc(0);
+
+			let result = b.rotate_left(1);
+			let z = result == 0;
+			let c = b & 0x80 != 0;
+			assert_flags(&cpu, z, false, false, c, &params);
+			assert_eq!(cpu.b, result, "{:?}", params);
+			assert_eq!(cpu.cycles_elapsed, 0);
+		}
+	}
+
+	#[test]
+	fn rl() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for c in 0..=u8::MAX {
+			for carry in [false, true] {
+				cpu.cycles_elapsed = 0;
+				let params = (c, carry);
+				cpu.c = c;
+				cpu.f.set_c(carry);
+
+				cpu.rl(1);
+
+				let result = c.wrapping_shl(1) | carry as u8;
+				let z = result == 0;
+				let c = c & 0x80 != 0;
+				assert_flags(&cpu, z, false, false, c, &params);
+				assert_eq!(cpu.c, result, "{:?}", params);
+				assert_eq!(cpu.cycles_elapsed, 0);
+			}
+		}
+	}
+
+	#[test]
+	fn rrc() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for d in 0..=u8::MAX {
+			cpu.cycles_elapsed = 0;
+			let params = d;
+			cpu.d = d;
+
+			cpu.rrc(2);
+
+			let result = d.rotate_right(1);
+			let z = result == 0;
+			let c = d & 0x01 != 0;
+			assert_flags(&cpu, z, false, false, c, &params);
+			assert_eq!(cpu.d, result, "{:?}", params);
+			assert_eq!(cpu.cycles_elapsed, 0);
+		}
+	}
+
+	#[test]
+	fn rr() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for e in 0..=u8::MAX {
+			for carry in [false, true] {
+				cpu.cycles_elapsed = 0;
+				let params = (e, carry);
+				cpu.e = e;
+				cpu.f.set_c(carry);
+
+				cpu.rr(3);
+
+				let result = e.wrapping_shr(1) | (carry as u8) << 7;
+				let z = result == 0;
+				let c = e & 0x01 != 0;
+				assert_flags(&cpu, z, false, false, c, &params);
+				assert_eq!(cpu.e, result, "{:?}", params);
+				assert_eq!(cpu.cycles_elapsed, 0);
+			}
+		}
+	}
+
+	#[test]
+	fn sla() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for h in 0..=u8::MAX {
+			cpu.cycles_elapsed = 0;
+			let params = h;
+			cpu.h = h;
+
+			cpu.sla(4);
+
+			let result = h.wrapping_shl(1);
+			let z = result == 0;
+			let c = h & 0x80 != 0;
+			assert_flags(&cpu, z, false, false, c, &params);
+			assert_eq!(cpu.h, result, "{:?}", params);
+			assert_eq!(cpu.cycles_elapsed, 0);
+		}
+	}
+
+	#[test]
+	fn sra() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for l in 0..=u8::MAX {
+			cpu.cycles_elapsed = 0;
+			let params = l;
+			cpu.l = l;
+
+			cpu.sra(5);
+
+			let result = l.wrapping_shr(1) | l & 0x80;
+			let z = result == 0;
+			let c = l & 0x01 != 0;
+			assert_flags(&cpu, z, false, false, c, &params);
+			assert_eq!(cpu.l, result, "{:?}", params);
+			assert_eq!(cpu.cycles_elapsed, 0);
+		}
+	}
+
+	#[test]
+	fn swap() {
+		let mem = RefCell::new([0]);
+		let mut cpu = State::new(TinyAddrSpace(&mem));
+
+		for hl_ in 0..=u8::MAX {
+			cpu.cycles_elapsed = 0;
+			let params = hl_;
+			mem.borrow_mut()[0] = hl_;
+
+			cpu.swap(6);
+
+			let result = hl_.rotate_right(4);
+			let z = result == 0;
+			assert_flags(&cpu, z, false, false, false, &params);
+			assert_eq!(mem.borrow()[0], result, "{:?}", params);
+			assert_eq!(cpu.cycles_elapsed, 2); // Accesses to and from [hl]
+		}
+	}
+
+	#[test]
+	fn srl() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for a in 0..=u8::MAX {
+			cpu.cycles_elapsed = 0;
+			let params = a;
+			cpu.a = a;
+
+			cpu.srl(7);
+
+			let result = a.wrapping_shr(1);
+			let z = result == 0;
+			let c = a & 0x01 != 0;
+			assert_flags(&cpu, z, false, false, c, &params);
+			assert_eq!(cpu.a, result, "{:?}", params);
+			assert_eq!(cpu.cycles_elapsed, 0);
+		}
+	}
+
+	#[test]
+	fn ld_r8_r8() {
+		let mem = RefCell::new([0; 2]);
+		let mut cpu = State::new(TinyAddrSpace(&mem));
+
+		for dest in 0..=7 {
+			for src in 0..=7 {
+				let mut regs = [b'G', b'A', b'M', b'E', b' ', b'B', b'O', b'Y']; // 8 unique values :)
+				for i in 0..=7 {
+					cpu.set_r8_by_id(i, regs[i as usize]);
+				}
+				assert_eq!(cpu.get_hl() % 2, 0); // Otherwise [hl] doesn't point to the first cell
+
+				cpu.pc = 1;
+				mem.borrow_mut()[1] = 0x40 | dest << 3 | src; // Write the instruction
+				cpu.cycles_elapsed = 0;
+
+				let ret = cpu.tick();
+
+				regs[dest as usize] = regs[src as usize];
+				for i in 0..=7 {
+					assert_eq!(
+						if i == 6 {
+							mem.borrow_mut()[0]
+						} else {
+							cpu.get_r8_by_id(i)
+						},
+						regs[i as usize],
+						"from {} to {}",
+						src,
+						dest
+					);
+				}
+
+				match (dest, src) {
+					(0, 0) => assert_eq!(ret, TickResult::Break),
+					(2, 2) => assert_eq!(ret, TickResult::Debug),
+					(6, 6) => assert_eq!(ret, TickResult::Halt),
+					_ => assert_eq!(ret, TickResult::Ok, "from {} to {}", src, dest),
+				}
+
+				if ret != TickResult::Halt {
+					assert_eq!(
+						cpu.cycles_elapsed,
+						1 + (dest == 6) as usize + (src == 6) as usize,
+						"from {} to {}",
+						src,
+						dest
+					);
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn ld_r8_n8() {
+		let mem = RefCell::new([0; 3]);
+		let mut cpu = State::new(TinyAddrSpace(&mem));
+
+		mem.borrow_mut()[1] = 42;
+		for dest in 0..=7 {
+			let mut regs = [b'G', b'A', b'M', b'E', b' ', b'B', b'O', b'Y']; // 8 unique values :)
+			for i in 0..=7 {
+				cpu.set_r8_by_id(i, regs[i as usize]);
+			}
+			assert_eq!(cpu.get_hl() % 3, 2); // Otherwise [hl] doesn't point to the last cell
+
+			cpu.pc = 0;
+			mem.borrow_mut()[0] = 0x06 | dest << 3; // Write the instruction
+			cpu.cycles_elapsed = 0;
+
+			let ret = cpu.tick();
+
+			regs[dest as usize] = 42;
+			for i in 0..=7 {
+				assert_eq!(
+					if i == 6 {
+						mem.borrow_mut()[2]
+					} else {
+						cpu.get_r8_by_id(i)
+					},
+					regs[i as usize],
+					"to {}",
+					dest
+				);
+			}
+
+			assert_eq!(ret, TickResult::Ok, "to {}", dest);
+
+			assert_eq!(cpu.cycles_elapsed, 2 + (dest == 6) as usize, "to {}", dest);
+		}
+	}
+
+	#[test]
+	fn inc_dec_r8() {
+		let mem = RefCell::new([0; 3]);
+		let mut cpu = State::new(TinyAddrSpace(&mem));
+
+		let mut regs = [b'G', b'A', b'M', b'E', b' ', b'B', b'O', b'Y']; // 8 unique values :)
+		for i in 0..=7 {
+			cpu.set_r8_by_id(i, regs[i as usize]);
+		}
+		assert_eq!(cpu.get_hl() % 3, 2); // Otherwise [hl] doesn't point to the last cell
+
+		for dest in 0..=7 {
+			for dec in [false, true] {
+				cpu.pc = 0;
+				mem.borrow_mut()[0] = 0x04 | dest << 3 | dec as u8; // Write the instruction
+				cpu.cycles_elapsed = 0;
+				let c = dest > 3;
+				cpu.f.set_c(c);
+
+				let ret = cpu.tick();
+
+				regs[dest as usize] =
+					regs[dest as usize].wrapping_add(if dec { u8::MAX } else { 1 });
+				for i in 0..=7 {
+					assert_eq!(
+						if i == 6 {
+							mem.borrow_mut()[2]
+						} else {
+							cpu.get_r8_by_id(i)
+						},
+						regs[i as usize],
+						"{} {}",
+						if dec { "dec" } else { "inc" },
+						dest
+					);
+				}
+
+				assert_eq!(ret, TickResult::Ok, "to {}", dest);
+
+				let z = regs[dest as usize] == 0;
+				let h = regs[dest as usize] & 0xF == if dec { 0xF } else { 0 };
+				assert_flags(&cpu, z, dec, h, c, (dec, dest));
+				assert_eq!(
+					cpu.cycles_elapsed,
+					1 + (dest == 6) as usize * 2,
+					"{} {}",
+					if dec { "dec" } else { "inc" },
+					dest
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn alu_r8() {
+		let mem = RefCell::new([0; 3]);
+		let mut cpu = State::new(TinyAddrSpace(&mem));
+
+		let ops: [&dyn Fn(u8, u8, bool) -> (u8, bool, bool, bool, bool); 8] = [
+			&|a, operand, _carry| {
+				// add
+				let res = a as u16 + operand as u16;
+				(
+					res as u8,
+					res == 0,
+					false,
+					(a & 0xF) + (operand & 0xF) > 0xF,
+					res > 0xFF,
+				)
+			},
+			&|a, operand, carry| {
+				// adc
+				let res = a as u16 + operand as u16 + carry as u16;
+				(
+					res as u8,
+					res == 0,
+					false,
+					(a & 0xF) + (operand & 0xF) + carry as u8 > 0xF,
+					res > 0xFF,
+				)
+			},
+			&|a, operand, _carry| {
+				// sub
+				let res = a as i16 - operand as i16;
+				(
+					res as u8,
+					res == 0,
+					true,
+					(a & 0xF) as i8 - ((operand & 0xF) as i8) < 0,
+					res < 0,
+				)
+			},
+			&|a, operand, carry| {
+				// sbc
+				let res = a as i16 - operand as i16 - carry as i16;
+				(
+					res as u8,
+					res == 0,
+					true,
+					(a & 0xF) as i8 - (operand & 0xF) as i8 - (carry as i8) < 0,
+					res < 0,
+				)
+			},
+			&|a, operand, _carry| {
+				// and
+				let res = a & operand;
+				(res as u8, res == 0, false, true, false)
+			},
+			&|a, operand, _carry| {
+				// xor
+				let res = a ^ operand;
+				(res as u8, res == 0, false, false, false)
+			},
+			&|a, operand, _carry| {
+				// or
+				let res = a | operand;
+				(res as u8, res == 0, false, false, false)
+			},
+			&|a, operand, _carry| {
+				// cp
+				let res = a as i16 - operand as i16;
+				(
+					a,
+					res == 0,
+					true,
+					(a & 0xF) as i8 - ((operand & 0xF) as i8) < 0,
+					res < 0,
+				)
+			},
+		];
+
+		let regs = [b'G', b'A', b'M', b'E', b' ', b'B', b'O', b'Y']; // 8 unique values :)
+		mem.borrow_mut()[1] = 42;
+
+		for op in 0..=7 {
+			for carry_in in [false, true] {
+				for operand in 0..=8 {
+					let params = format!(
+						"[c={}] {} a, {}",
+						carry_in,
+						OP_NAMES[op as usize],
+						if operand == 8 {
+							"42"
+						} else {
+							REG_NAMES[operand as usize]
+						}
+					);
+
+					for i in 0..=7 {
+						cpu.set_r8_by_id(i, regs[i as usize]);
+					}
+					assert_eq!(cpu.get_hl() % 3, 2); // Otherwise [hl] doesn't point to the last cell
+
+					cpu.pc = 0;
+					mem.borrow_mut()[0] = if operand == 8 {
+						0xC6 | op << 3
+					} else {
+						0x80 | op << 3 | operand
+					}; // Write the instruction
+					cpu.cycles_elapsed = 0;
+					cpu.f.set_c(carry_in);
+
+					let ret = cpu.tick();
+
+					let (res, z, n, h, c) = ops[op as usize](
+						regs[7],
+						if operand == 8 {
+							42
+						} else {
+							regs[operand as usize]
+						},
+						carry_in,
+					);
+					for i in 0..=6 {
+						assert_eq!(
+							if i == 6 {
+								mem.borrow_mut()[2]
+							} else {
+								cpu.get_r8_by_id(i)
+							},
+							regs[i as usize],
+							"{:?}",
+							params
+						);
+					}
+					assert_eq!(cpu.a, res, "{:?}", params);
+
+					assert_eq!(ret, TickResult::Ok, "to {}", operand);
+
+					assert_flags(&cpu, z, n, h, c, &params);
+					assert_eq!(
+						cpu.cycles_elapsed,
+						1 + (operand == 6) as usize + (operand == 8) as usize,
+						"{:?}",
+						params
+					);
+				}
+
+				// TODO: test with immediate operand as well
+			}
+		}
 	}
 }
