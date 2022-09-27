@@ -39,9 +39,12 @@ const SILENCE_ALL: u8 = 2; // Silences all output unless an error occurs.
 struct TestConfig {
 	name: String,
 	a: Option<u8>,
-	b: Option<u8>, c: Option<u8>,
-	d: Option<u8>, e: Option<u8>,
-	h: Option<u8>, l: Option<u8>,
+	b: Option<u8>,
+	c: Option<u8>,
+	d: Option<u8>,
+	e: Option<u8>,
+	h: Option<u8>,
+	l: Option<u8>,
 	// f is decomposed into 4 bools to test them independantly.
 	zf: Option<bool>,
 	nf: Option<bool>,
@@ -64,47 +67,147 @@ struct TestConfig {
 impl TestConfig {
 	fn configure(&self, cpu: &mut cpu::State) {
 		// Macros should be able to do something like this?
-		if let Some(value) = self.a { cpu.a = value }
-		if let Some(value) = self.b { cpu.b = value }
-		if let Some(value) = self.c { cpu.c = value }
-		if let Some(value) = self.d { cpu.d = value }
-		if let Some(value) = self.e { cpu.e = value }
-		if let Some(value) = self.h { cpu.h = value }
-		if let Some(value) = self.l { cpu.l = value }
-		if let Some(value) = self.zf { cpu.f.set_z(value) }
-		if let Some(value) = self.nf { cpu.f.set_n(value) }
-		if let Some(value) = self.hf { cpu.f.set_h(value) }
-		if let Some(value) = self.cf { cpu.f.set_c(value) }
-		if let Some(value) = self.bc { cpu.set_bc(value) }
-		if let Some(value) = self.de { cpu.set_de(value) }
-		if let Some(value) = self.hl { cpu.set_hl(value) }
-		if let Some(value) = self.pc { cpu.pc = value }
-		if let Some(value) = self.sp { cpu.sp = value }
+		if let Some(value) = self.a {
+			cpu.a = value
+		}
+		if let Some(value) = self.b {
+			cpu.b = value
+		}
+		if let Some(value) = self.c {
+			cpu.c = value
+		}
+		if let Some(value) = self.d {
+			cpu.d = value
+		}
+		if let Some(value) = self.e {
+			cpu.e = value
+		}
+		if let Some(value) = self.h {
+			cpu.h = value
+		}
+		if let Some(value) = self.l {
+			cpu.l = value
+		}
+		if let Some(value) = self.zf {
+			cpu.f.set_z(value)
+		}
+		if let Some(value) = self.nf {
+			cpu.f.set_n(value)
+		}
+		if let Some(value) = self.hf {
+			cpu.f.set_h(value)
+		}
+		if let Some(value) = self.cf {
+			cpu.f.set_c(value)
+		}
+		if let Some(value) = self.bc {
+			cpu.set_bc(value)
+		}
+		if let Some(value) = self.de {
+			cpu.set_de(value)
+		}
+		if let Some(value) = self.hl {
+			cpu.set_hl(value)
+		}
+		if let Some(value) = self.pc {
+			cpu.pc = value
+		}
+		if let Some(value) = self.sp {
+			cpu.sp = value
+		}
 	}
 
 	fn compare(&self, cpu: &cpu::State) -> Result<(), String> {
 		let mut err_msg = String::from("");
 
 		fn add_err<T: std::fmt::Display>(err_msg: &mut String, hint: &str, result: T, expected: T) {
-			*err_msg += format!("{} ({}) does not match expected value ({})\n", hint, result, expected).as_str();
+			*err_msg += format!(
+				"{} ({}) does not match expected value ({})\n",
+				hint, result, expected
+			)
+			.as_str();
 		}
 
-		if let Some(value) = self.a { if cpu.a != value { add_err(&mut err_msg, "a", cpu.a, value); } }
-		if let Some(value) = self.b { if cpu.b != value { add_err(&mut err_msg, "b", cpu.b, value); } }
-		if let Some(value) = self.c { if cpu.c != value { add_err(&mut err_msg, "c", cpu.c, value); } }
-		if let Some(value) = self.d { if cpu.d != value { add_err(&mut err_msg, "d", cpu.d, value); } }
-		if let Some(value) = self.e { if cpu.e != value { add_err(&mut err_msg, "e", cpu.e, value); } }
-		if let Some(value) = self.h { if cpu.h != value { add_err(&mut err_msg, "h", cpu.h, value); } }
-		if let Some(value) = self.l { if cpu.l != value { add_err(&mut err_msg, "l", cpu.l, value); } }
-		if let Some(value) = self.zf { if cpu.f.get_z() != value { add_err(&mut err_msg, "f.z", cpu.f.get_z(), value) } }
-		if let Some(value) = self.nf { if cpu.f.get_n() != value { add_err(&mut err_msg, "f.n", cpu.f.get_n(), value) } }
-		if let Some(value) = self.hf { if cpu.f.get_h() != value { add_err(&mut err_msg, "f.h", cpu.f.get_h(), value) } }
-		if let Some(value) = self.cf { if cpu.f.get_c() != value { add_err(&mut err_msg, "f.c", cpu.f.get_c(), value) } }
-		if let Some(value) = self.bc { if cpu.get_bc() != value { add_err(&mut err_msg, "bc", cpu.get_bc(), value) } }
-		if let Some(value) = self.de { if cpu.get_de() != value { add_err(&mut err_msg, "de", cpu.get_de(), value) } }
-		if let Some(value) = self.hl { if cpu.get_hl() != value { add_err(&mut err_msg, "hl", cpu.get_hl(), value) } }
-		if let Some(value) = self.pc { if cpu.pc != value { add_err(&mut err_msg, "pc", cpu.pc, value) } }
-		if let Some(value) = self.sp { if cpu.sp != value { add_err(&mut err_msg, "sp", cpu.sp, value) } }
+		if let Some(value) = self.a {
+			if cpu.a != value {
+				add_err(&mut err_msg, "a", cpu.a, value);
+			}
+		}
+		if let Some(value) = self.b {
+			if cpu.b != value {
+				add_err(&mut err_msg, "b", cpu.b, value);
+			}
+		}
+		if let Some(value) = self.c {
+			if cpu.c != value {
+				add_err(&mut err_msg, "c", cpu.c, value);
+			}
+		}
+		if let Some(value) = self.d {
+			if cpu.d != value {
+				add_err(&mut err_msg, "d", cpu.d, value);
+			}
+		}
+		if let Some(value) = self.e {
+			if cpu.e != value {
+				add_err(&mut err_msg, "e", cpu.e, value);
+			}
+		}
+		if let Some(value) = self.h {
+			if cpu.h != value {
+				add_err(&mut err_msg, "h", cpu.h, value);
+			}
+		}
+		if let Some(value) = self.l {
+			if cpu.l != value {
+				add_err(&mut err_msg, "l", cpu.l, value);
+			}
+		}
+		if let Some(value) = self.zf {
+			if cpu.f.get_z() != value {
+				add_err(&mut err_msg, "f.z", cpu.f.get_z(), value)
+			}
+		}
+		if let Some(value) = self.nf {
+			if cpu.f.get_n() != value {
+				add_err(&mut err_msg, "f.n", cpu.f.get_n(), value)
+			}
+		}
+		if let Some(value) = self.hf {
+			if cpu.f.get_h() != value {
+				add_err(&mut err_msg, "f.h", cpu.f.get_h(), value)
+			}
+		}
+		if let Some(value) = self.cf {
+			if cpu.f.get_c() != value {
+				add_err(&mut err_msg, "f.c", cpu.f.get_c(), value)
+			}
+		}
+		if let Some(value) = self.bc {
+			if cpu.get_bc() != value {
+				add_err(&mut err_msg, "bc", cpu.get_bc(), value)
+			}
+		}
+		if let Some(value) = self.de {
+			if cpu.get_de() != value {
+				add_err(&mut err_msg, "de", cpu.get_de(), value)
+			}
+		}
+		if let Some(value) = self.hl {
+			if cpu.get_hl() != value {
+				add_err(&mut err_msg, "hl", cpu.get_hl(), value)
+			}
+		}
+		if let Some(value) = self.pc {
+			if cpu.pc != value {
+				add_err(&mut err_msg, "pc", cpu.pc, value)
+			}
+		}
+		if let Some(value) = self.sp {
+			if cpu.sp != value {
+				add_err(&mut err_msg, "sp", cpu.sp, value)
+			}
+		}
 
 		if err_msg.len() == 0 {
 			Ok(())
@@ -117,16 +220,22 @@ impl TestConfig {
 		TestConfig {
 			name,
 			a: None,
-			b: None, c: None,
-			d: None, e: None,
-			h: None, l: None,
-			zf: None, nf: None, hf: None, cf: None,
+			b: None,
+			c: None,
+			d: None,
+			e: None,
+			h: None,
+			l: None,
+			zf: None,
+			nf: None,
+			hf: None,
+			cf: None,
 			bc: None,
 			de: None,
 			hl: None,
 			pc: None,
 			sp: None,
-			crash_addresses: vec!(),
+			crash_addresses: vec![],
 			enable_breakpoints: true,
 			timeout: 65536,
 			result: None,
@@ -179,7 +288,12 @@ fn read_config(path: &String, symfile: &Symfile) -> (TestConfig, Vec<TestConfig>
 		}
 	}
 
-	fn parse_configuration(test: &mut TestConfig, key: &str, value: &toml::Value, symfile: &Symfile) {
+	fn parse_configuration(
+		test: &mut TestConfig,
+		key: &str,
+		value: &toml::Value,
+		symfile: &Symfile,
+	) {
 		match key {
 			"a" => test.a = parse_u8(value, key),
 			"b" => test.b = parse_u8(value, key),
@@ -201,7 +315,7 @@ fn read_config(path: &String, symfile: &Symfile) -> (TestConfig, Vec<TestConfig>
 				if let Some(address) = parse_u16(value, key, symfile) {
 					test.crash_addresses.push(address);
 				}
-			},
+			}
 			"enable-breakpoints" => test.enable_breakpoints = parse_bool(value, key).unwrap(),
 			"timeout" => {
 				if let toml::Value::Integer(value) = value {
@@ -209,7 +323,7 @@ fn read_config(path: &String, symfile: &Symfile) -> (TestConfig, Vec<TestConfig>
 				} else {
 					eprintln!("Value of `{key}` must be an integer.");
 				}
-			},
+			}
 			&_ => {
 				if let toml::Value::Table(value) = value {
 					let mut result_config = TestConfig::new(String::from(key));
@@ -218,7 +332,7 @@ fn read_config(path: &String, symfile: &Symfile) -> (TestConfig, Vec<TestConfig>
 					}
 					test.result = Some(Box::new(result_config));
 				} else {
-					println!("Unknown config {key} = {value:?}");					
+					println!("Unknown config {key} = {value:?}");
 				}
 			}
 		}
@@ -263,7 +377,7 @@ enum FailureReason {
 
 fn main() {
 	fn open_input(path: &String) -> File {
-		match File::open(if path == "-" { "/dev/stdin"} else { path }) {
+		match File::open(if path == "-" { "/dev/stdin" } else { path }) {
 			Ok(file) => file,
 			Err(msg) => {
 				eprintln!("Failed to open {path}: {msg}");
@@ -287,7 +401,7 @@ fn main() {
 
 	let mut config_text = String::new();
 	match open_input(&config_path).read_to_string(&mut config_text) {
-		Ok(..) => {},
+		Ok(..) => {}
 		Err(error) => {
 			eprintln!("Failed to open {config_path}: {error}");
 			exit(1);
@@ -323,40 +437,52 @@ fn main() {
 
 		let failure_reason = 'tick: loop {
 			match cpu_state.tick() {
-				cpu::TickResult::Ok => {},
+				cpu::TickResult::Ok => {}
 				cpu::TickResult::Halt => break FailureReason::None,
 				cpu::TickResult::Stop => break FailureReason::None,
 				cpu::TickResult::Break => {
 					if global_config.enable_breakpoints {
-						println!("{rom_path}: BREAKPOINT in {} \n{cpu_state}", test.name);						
+						println!("{rom_path}: BREAKPOINT in {} \n{cpu_state}", test.name);
 					}
-				},
+				}
 				cpu::TickResult::Debug => {
 					if global_config.enable_breakpoints {
 						println!("{rom_path}: DEBUG in {}\n{cpu_state}", test.name);
 					}
-				},
-				cpu::TickResult::InvalidOpcode => { break FailureReason::InvalidOpcode; }
+				}
+				cpu::TickResult::InvalidOpcode => {
+					break FailureReason::InvalidOpcode;
+				}
 			}
 
-			if cpu_state.pc == 0xFFFF { break FailureReason::None; }
+			if cpu_state.pc == 0xFFFF {
+				break FailureReason::None;
+			}
 
 			for addr in &global_config.crash_addresses {
-				if cpu_state.pc == *addr { break 'tick FailureReason::Crash; }
+				if cpu_state.pc == *addr {
+					break 'tick FailureReason::Crash;
+				}
 			}
 
 			for addr in &test.crash_addresses {
-				if cpu_state.pc == *addr { break 'tick FailureReason::Crash; }
+				if cpu_state.pc == *addr {
+					break 'tick FailureReason::Crash;
+				}
 			}
 
-			if cpu_state.cycles_elapsed >= global_config.timeout || cpu_state.cycles_elapsed >= test.timeout {
+			if cpu_state.cycles_elapsed >= global_config.timeout
+				|| cpu_state.cycles_elapsed >= test.timeout
+			{
 				break FailureReason::Timeout;
 			}
 		};
 
 		if failure_reason != FailureReason::None {
-			println!("\x1B[91m{}: {} failed\x1B[0m:\n{}\n{}",
-				rom_path, test.name,
+			println!(
+				"\x1B[91m{}: {} failed\x1B[0m:\n{}\n{}",
+				rom_path,
+				test.name,
 				match failure_reason {
 					FailureReason::InvalidOpcode => "Invalid opcode",
 					FailureReason::Crash => "Crashed",
@@ -372,9 +498,12 @@ fn main() {
 						println!("\x1B[92m{}: {} passed\x1B[0m", rom_path, test.name);
 					}
 					continue;
-				},
+				}
 				Err(msg) => {
-					print!("\x1B[91m{}: {} failed\x1B[0m:\n{}", rom_path, test.name, msg);
+					print!(
+						"\x1B[91m{}: {} failed\x1B[0m:\n{}",
+						rom_path, test.name, msg
+					);
 				}
 			}
 		} else {
@@ -383,18 +512,16 @@ fn main() {
 			}
 			continue; // This continue skips failure handling.
 		}
-		
+
 		if let Some(ref dump_dir) = cli.dump_dir {
 			let path = String::from(dump_dir) + format!("/{}.txt", test.name).as_str();
 
 			match File::create(&path) {
-				Ok(file) => {
-					match cpu_state.address_space.dump(file) {
-						Ok(..) => {},
-						Err(msg) => eprintln!("Failed to write dump to {path}: {msg}")
-					}
+				Ok(file) => match cpu_state.address_space.dump(file) {
+					Ok(..) => {}
+					Err(msg) => eprintln!("Failed to write dump to {path}: {msg}"),
 				},
-				Err(msg) => eprintln!("Failed to open {path}: {msg}")
+				Err(msg) => eprintln!("Failed to open {path}: {msg}"),
 			}
 		}
 		fail_count += 1;
@@ -402,8 +529,15 @@ fn main() {
 
 	// When in SILENCE_ALL only print the final message if a test failed.
 	if !(cli.silent >= SILENCE_ALL) || fail_count != 0 {
-		println!("{}: All tests complete. {}/{} passed.", rom_path, tests.len() - fail_count, tests.len());
+		println!(
+			"{}: All tests complete. {}/{} passed.",
+			rom_path,
+			tests.len() - fail_count,
+			tests.len()
+		);
 	}
 
-	if fail_count > 0 { exit(1); }
+	if fail_count > 0 {
+		exit(1);
+	}
 }
