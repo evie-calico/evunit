@@ -183,10 +183,11 @@ impl<S: AddressSpace> State<S> {
 		}
 	}
 
-	// Passthroughs for address_space.read/write()
+	/// Passthrough for [`self.address_space.read()`][AddressSpace::read].
 	pub fn read(&self, address: u16) -> u8 {
 		self.address_space.read(address)
 	}
+	/// Passthrough for [`self.address_space.write()`][AddressSpace::write].
 	pub fn write(&mut self, address: u16, value: u8) {
 		self.address_space.write(address, value);
 	}
@@ -401,7 +402,8 @@ impl<S: AddressSpace> State<S> {
 		self.cycles_elapsed += 3;
 	}
 
-	// Returns true upon test completion.
+	/// Steps the CPU forward by one instruction.
+	/// [`self.cycles_elapsed`][Self::cycles_elapsed] is updated accordingly.
 	pub fn tick(&mut self) -> TickResult {
 		match self.read_pc() {
 			/* nop */ 0x00 => {}

@@ -6,15 +6,14 @@ use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
 
+#[derive(Debug, Default)]
 pub struct Symfile {
 	pub symbols: HashMap<String, (u16, u16)>,
 }
 
 impl Symfile {
-	pub fn new() -> Symfile {
-		Symfile {
-			symbols: HashMap::new(),
-		}
+	pub fn new() -> Self {
+		Default::default()
 	}
 
 	pub fn open(path: &String) -> Result<Symfile, std::io::Error> {
