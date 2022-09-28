@@ -1,10 +1,11 @@
 use clap::Parser;
-use evunit::sym::Symbols;
+use evunit::sym;
 use evunit::{cpu, memory};
 use paste::paste;
 
+use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufReader, Error, Read, Write};
+use std::io::{BufRead, BufReader, Error, Read, Write};
 use std::process::exit;
 
 #[derive(Parser)]
@@ -186,7 +187,10 @@ impl TestConfig {
 	}
 }
 
-fn read_config(path: &String, symfile: &Symbols) -> (TestConfig, Vec<TestConfig>) {
+fn read_config(
+	path: &String,
+	symfile: &HashMap<String, (u32, u16)>,
+) -> (TestConfig, Vec<TestConfig>) {
 	fn parse_u8(value: &toml::Value, hint: &str) -> Option<u8> {
 		if let toml::Value::Integer(value) = value {
 			if *value < 256 && *value >= -128 {
@@ -201,7 +205,11 @@ fn read_config(path: &String, symfile: &Symbols) -> (TestConfig, Vec<TestConfig>
 		}
 	}
 
-	fn parse_u16(value: &toml::Value, hint: &str, symfile: &Symbols) -> Option<u16> {
+	fn parse_u16(
+		value: &toml::Value,
+		hint: &str,
+		symfile: &HashMap<String, (u32, u16)>,
+	) -> Option<u16> {
 		if let toml::Value::Integer(value) = value {
 			if *value < 65536 && *value >= -32768 {
 				Some(*value as u16)
@@ -210,7 +218,7 @@ fn read_config(path: &String, symfile: &Symbols) -> (TestConfig, Vec<TestConfig>
 				None
 			}
 		} else if let toml::Value::String(value) = value {
-			if let Some((_, addr)) = symfile.symbols.get(value) {
+			if let Some((_, addr)) = symfile.get(value) {
 				Some(*addr)
 			} else {
 				eprintln!("Symbol \"{value}\" not found.");
@@ -235,7 +243,7 @@ fn read_config(path: &String, symfile: &Symbols) -> (TestConfig, Vec<TestConfig>
 		test: &mut TestConfig,
 		key: &str,
 		value: &toml::Value,
-		symfile: &Symbols,
+		symfile: &HashMap<String, (u32, u16)>,
 	) {
 		match key {
 			"a" => test.a = parse_u8(value, key),
@@ -352,22 +360,33 @@ fn main() {
 	};
 
 	let symfile = if let Some(symfile_path) = &cli.symfile {
-		let file = match File::open(symfile_path) {
-			Ok(file) => file,
-			Err(error) => {
-				eprintln!("Failed to open {symfile_path}: {error}");
-				exit(1);
-			}
-		};
-		match Symbols::from_sym_file(BufReader::new(file)) {
-			Ok(result) => result,
-			Err(error) => {
-				eprintln!("Failed to read {symfile_path}: {error}");
-				exit(1);
-			}
-		}
+		let file = File::open(symfile_path).unwrap_or_else(|error| {
+			eprintln!("Failed to open {symfile_path}: {error}");
+			exit(1);
+		});
+		BufReader::new(file)
+			.lines()
+			.map(|line| {
+				line.unwrap_or_else(|error| {
+					eprintln!("Error reading {symfile_path}: {error}");
+					exit(1);
+				})
+			})
+			.enumerate()
+			.filter_map(|(n, line)| {
+				sym::parse_line(&line).unwrap_or_else(|error| {
+					eprintln!("Failed to parse {symfile_path} line {}: {error}", n + 1);
+					exit(1);
+				})
+			})
+			// We are only interested in banked symbols
+			.filter_map(|(name, loc)| match loc {
+				sym::Location::Banked(bank, addr) => Some((name, (bank, addr))),
+				_ => None,
+			})
+			.collect()
 	} else {
-		Symbols::new()
+		HashMap::new()
 	};
 
 	let (global_config, tests) = read_config(&config_text, &symfile);

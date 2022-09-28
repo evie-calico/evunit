@@ -13,8 +13,8 @@ edition = "2021"
 [dependencies]
 toml = { version = "0.5.9", features = ["preserve_order"] }
 clap = { version = "3.2.17", features = ["derive"] }
-regex = "1.6.0"
 paste = "1.0.9"
+thiserror = "1.0.37"
 
 [profile.release]
 lto = true
