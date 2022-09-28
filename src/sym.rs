@@ -1,3 +1,5 @@
+//! This module parses [sym files](https://rgbds.gbdev.io/docs/sym).
+
 use regex::Regex;
 use std::collections::HashMap;
 use std::fs::File;

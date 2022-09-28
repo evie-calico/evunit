@@ -1,32 +1,50 @@
+//! This module contains the CPU simulator.
+//!
+//! Importantly, the simulator is built with the assumption that instructions are atomic;
+//! reading from a "dynamic" location (typically, a hardware register) will **not** read the correct
+//! value (the cycle count is unknown to the [`AddressSpace`]).
+//!
+//! This is a design choice for simplicity and performance's sake, and not a bug.
+
 use crate::memory::AddressSpace;
 use std::{fmt, ops::BitOrAssign};
 
+/// The CPU's flags register.
 pub struct Flags {
+	/// The raw 8-bit value.
 	pub value: u8,
 }
 
 impl Flags {
+	/// Gets the Z flag's value.
 	pub fn get_z(&self) -> bool {
 		self.value & 0b10000000 != 0
 	}
+	/// Gets the N flag's value.
 	pub fn get_n(&self) -> bool {
 		self.value & 0b01000000 != 0
 	}
+	/// Gets the H flag's value.
 	pub fn get_h(&self) -> bool {
 		self.value & 0b00100000 != 0
 	}
+	/// Gets the C flag's value.
 	pub fn get_c(&self) -> bool {
 		self.value & 0b00010000 != 0
 	}
+	/// Sets the Z flag's value.
 	pub fn set_z(&mut self, value: bool) {
 		self.value = self.value & 0b01110000 | (value as u8) << 7;
 	}
+	/// Sets the N flag's value.
 	pub fn set_n(&mut self, value: bool) {
 		self.value = self.value & 0b10110000 | (value as u8) << 6;
 	}
+	/// Sets the H flag's value.
 	pub fn set_h(&mut self, value: bool) {
 		self.value = self.value & 0b11010000 | (value as u8) << 5;
 	}
+	/// Sets the C flag's value.
 	pub fn set_c(&mut self, value: bool) {
 		self.value = self.value & 0b11100000 | (value as u8) << 4;
 	}
@@ -45,16 +63,24 @@ impl fmt::Display for Flags {
 	}
 }
 
+/// A tick's possible results.
 #[derive(Debug, PartialEq, Eq)]
 pub enum TickResult {
+	/// Nothing noteworthy happened.
 	Ok,
+	/// A `ld b, b` instruction was executed.
 	Break,
+	/// A `ld d, d` instruction was executed.
 	Debug,
+	/// A `halt` instruction was executed.
 	Halt,
+	/// A `stop` instruction was executed.
 	Stop,
+	/// An invalid opcode was executed.
 	InvalidOpcode,
 }
 
+/// The CPU's state, which is what gets ticked.
 pub struct State<S: AddressSpace> {
 	// Primary CPU Registers
 	pub a: u8,
@@ -68,11 +94,12 @@ pub struct State<S: AddressSpace> {
 	pub pc: u16,
 	pub sp: u16,
 
-	pub ei: bool,
+	pub ime: bool,
 
-	// Total number of M-Cycles that have passed during this CPU's life.
+	/// Total number of M-Cycles that have passed during this CPU's life.
 	pub cycles_elapsed: usize,
 
+	/// The address space the CPU is communicating with.
 	pub address_space: S,
 }
 
@@ -91,7 +118,7 @@ impl<S: AddressSpace> State<S> {
 			// SP defaults to the top of WRAM to minimize conflicts.
 			// Users should set SP to its proper address for all tests.
 			sp: 0xE000,
-			ei: true,
+			ime: true,
 			cycles_elapsed: 0,
 
 			address_space,
@@ -793,7 +820,7 @@ impl<S: AddressSpace> State<S> {
 			/* reti */
 			0xD9 => {
 				self.ret_cc(true);
-				self.ei = true;
+				self.ime = true;
 			}
 			/* jp c */
 			0xDA => {
@@ -885,7 +912,7 @@ impl<S: AddressSpace> State<S> {
 			}
 			/* di */
 			0xF3 => {
-				self.ei = false;
+				self.ime = false;
 			}
 			/* invalid opcode */
 			/* push af */
@@ -920,7 +947,7 @@ impl<S: AddressSpace> State<S> {
 			}
 			/* ei */
 			0xFB => {
-				self.ei = true;
+				self.ime = true;
 			}
 			/* invalid opcode */
 			/* invalid opcode */
@@ -978,7 +1005,7 @@ Elapsed cycles: {}",
 			self.f,
 			self.pc,
 			self.sp,
-			if self.ei { "en" } else { "dis" },
+			if self.ime { "en" } else { "dis" },
 			self.cycles_elapsed
 		)
 	}
