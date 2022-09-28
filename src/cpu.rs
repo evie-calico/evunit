@@ -1,32 +1,50 @@
-use crate::memory::AddressSpace;
-use std::fmt;
+//! This module contains the CPU simulator.
+//!
+//! Importantly, the simulator is built with the assumption that instructions are atomic;
+//! reading from a "dynamic" location (typically, a hardware register) will **not** read the correct
+//! value (the cycle count is unknown to the [`AddressSpace`]).
+//!
+//! This is a design choice for simplicity and performance's sake, and not a bug.
 
+use crate::memory::AddressSpace;
+use std::{fmt, ops::BitOrAssign};
+
+/// The CPU's flags register.
 pub struct Flags {
+	/// The raw 8-bit value.
 	pub value: u8,
 }
 
 impl Flags {
+	/// Gets the Z flag's value.
 	pub fn get_z(&self) -> bool {
 		self.value & 0b10000000 != 0
 	}
+	/// Gets the N flag's value.
 	pub fn get_n(&self) -> bool {
 		self.value & 0b01000000 != 0
 	}
+	/// Gets the H flag's value.
 	pub fn get_h(&self) -> bool {
 		self.value & 0b00100000 != 0
 	}
+	/// Gets the C flag's value.
 	pub fn get_c(&self) -> bool {
 		self.value & 0b00010000 != 0
 	}
+	/// Sets the Z flag's value.
 	pub fn set_z(&mut self, value: bool) {
 		self.value = self.value & 0b01110000 | (value as u8) << 7;
 	}
+	/// Sets the N flag's value.
 	pub fn set_n(&mut self, value: bool) {
 		self.value = self.value & 0b10110000 | (value as u8) << 6;
 	}
+	/// Sets the H flag's value.
 	pub fn set_h(&mut self, value: bool) {
 		self.value = self.value & 0b11010000 | (value as u8) << 5;
 	}
+	/// Sets the C flag's value.
 	pub fn set_c(&mut self, value: bool) {
 		self.value = self.value & 0b11100000 | (value as u8) << 4;
 	}
@@ -45,16 +63,25 @@ impl fmt::Display for Flags {
 	}
 }
 
+/// A tick's possible results.
+#[derive(Debug, PartialEq, Eq)]
 pub enum TickResult {
+	/// Nothing noteworthy happened.
 	Ok,
+	/// A `ld b, b` instruction was executed.
 	Break,
+	/// A `ld d, d` instruction was executed.
 	Debug,
+	/// A `halt` instruction was executed.
 	Halt,
+	/// A `stop` instruction was executed.
 	Stop,
+	/// An invalid opcode was executed.
 	InvalidOpcode,
 }
 
-pub struct State {
+/// The CPU's state, which is what gets ticked.
+pub struct State<S: AddressSpace> {
 	// Primary CPU Registers
 	pub a: u8,
 	pub f: Flags,
@@ -67,48 +94,100 @@ pub struct State {
 	pub pc: u16,
 	pub sp: u16,
 
-	pub ei: bool,
+	pub ime: bool,
 
-	// Total number of M-Cycles that have passed during this CPU's life.
+	/// Total number of M-Cycles that have passed during this CPU's life.
 	pub cycles_elapsed: usize,
 
-	pub address_space: AddressSpace,
+	/// The address space the CPU is communicating with.
+	pub address_space: S,
 }
 
-impl State {
-	pub fn get_af(&self) -> u16 {
-		(self.f.value as u16) | (self.a as u16) << 8
-	}
-	pub fn get_bc(&self) -> u16 {
-		(self.c as u16) | (self.b as u16) << 8
-	}
-	pub fn get_de(&self) -> u16 {
-		(self.e as u16) | (self.d as u16) << 8
-	}
-	pub fn get_hl(&self) -> u16 {
-		(self.l as u16) | (self.h as u16) << 8
-	}
-	pub fn set_af(&mut self, value: u16) {
-		self.f.value = (value & 0xFF) as u8;
-		self.a = (value >> 8) as u8;
-	}
-	pub fn set_bc(&mut self, value: u16) {
-		self.c = (value & 0xFF) as u8;
-		self.b = (value >> 8) as u8;
-	}
-	pub fn set_de(&mut self, value: u16) {
-		self.e = (value & 0xFF) as u8;
-		self.d = (value >> 8) as u8;
-	}
-	pub fn set_hl(&mut self, value: u16) {
-		self.l = (value & 0xFF) as u8;
-		self.h = (value >> 8) as u8;
+impl<S: AddressSpace> State<S> {
+	pub fn new(address_space: S) -> Self {
+		Self {
+			a: 0,
+			f: Flags { value: 0 },
+			b: 0,
+			c: 0,
+			d: 0,
+			e: 0,
+			h: 0,
+			l: 0,
+			pc: 0,
+			// SP defaults to the top of WRAM to minimize conflicts.
+			// Users should set SP to its proper address for all tests.
+			sp: 0xE000,
+			ime: true,
+			cycles_elapsed: 0,
+
+			address_space,
+		}
 	}
 
-	// Passthroughs for address_space.read/write()
+	pub fn get_af(&self) -> u16 {
+		u16::from_be_bytes([self.a, self.f.value])
+	}
+	pub fn get_bc(&self) -> u16 {
+		u16::from_be_bytes([self.b, self.c])
+	}
+	pub fn get_de(&self) -> u16 {
+		u16::from_be_bytes([self.d, self.e])
+	}
+	pub fn get_hl(&self) -> u16 {
+		u16::from_be_bytes([self.h, self.l])
+	}
+	pub fn set_af(&mut self, value: u16) {
+		[self.a, self.f.value] = value.to_be_bytes();
+	}
+	pub fn set_bc(&mut self, value: u16) {
+		[self.b, self.c] = value.to_be_bytes();
+	}
+	pub fn set_de(&mut self, value: u16) {
+		[self.d, self.e] = value.to_be_bytes();
+	}
+	pub fn set_hl(&mut self, value: u16) {
+		[self.h, self.l] = value.to_be_bytes();
+	}
+
+	pub fn get_r8_by_id(&mut self, id: u8) -> u8 {
+		match id {
+			0 => self.b,
+			1 => self.c,
+			2 => self.d,
+			3 => self.e,
+			4 => self.h,
+			5 => self.l,
+			6 => {
+				self.cycles_elapsed += 1;
+				self.read(self.get_hl())
+			}
+			7 => self.a,
+			_ => unreachable!(),
+		}
+	}
+	pub fn set_r8_by_id(&mut self, id: u8, value: u8) {
+		match id {
+			0 => self.b = value,
+			1 => self.c = value,
+			2 => self.d = value,
+			3 => self.e = value,
+			4 => self.h = value,
+			5 => self.l = value,
+			6 => {
+				self.cycles_elapsed += 1;
+				self.write(self.get_hl(), value)
+			}
+			7 => self.a = value,
+			_ => unreachable!(),
+		}
+	}
+
+	/// Passthrough for [`self.address_space.read()`][AddressSpace::read].
 	pub fn read(&self, address: u16) -> u8 {
 		self.address_space.read(address)
 	}
+	/// Passthrough for [`self.address_space.write()`][AddressSpace::write].
 	pub fn write(&mut self, address: u16, value: u8) {
 		self.address_space.write(address, value);
 	}
@@ -120,253 +199,212 @@ impl State {
 		value
 	}
 
-	// Returns true upon test completion.
+	fn add_hl_r16(&mut self, operand: u16) {
+		let (value, carry) = self.get_hl().overflowing_add(operand);
+		self.set_hl(value);
+		self.f.set_c(carry);
+		self.f.set_n(false);
+		self.f.set_h(self.get_hl() & 0xFFF < operand & 0xFFF);
+		self.cycles_elapsed += 1;
+	}
+
+	fn jr_cc(&mut self, condition: bool) {
+		let offset = self.read_pc() as i8;
+		if condition {
+			self.pc = i16::wrapping_add(self.pc as i16, offset as i16) as u16;
+			self.cycles_elapsed += 1;
+		}
+	}
+
+	fn add(&mut self, operand: u8, carry_in: bool) {
+		let mut r = CarryRetainer::new();
+		r |= self.a.overflowing_add(operand);
+		r |= r.0.overflowing_add(carry_in.into());
+		// If carry is not set, it's easy: is the post-add strictly lower than the pre-add?
+		// If carry is set, it's instead: is the post-add lower than the pre-add?
+		// So that amounts to "is the post-add strictly lower than (the pre-add plus carry)?"
+		self.f.set_h(r.0 & 0xF < (self.a & 0xF) + carry_in as u8);
+		self.f.set_c(r.1);
+		self.f.set_z(r.0 == 0);
+		self.f.set_n(false);
+		self.a = r.0;
+	}
+
+	fn sub(&mut self, operand: u8, carry_in: bool) {
+		let mut r = CarryRetainer::new();
+		r |= self.a.overflowing_sub(operand);
+		r |= r.0.overflowing_sub(carry_in.into());
+		// If carry is not set, it's easy: is the post-add strictly greater than the pre-add?
+		// If carry is set, it's instead: is the post-add greater than the pre-add?
+		// So that amounts to "is (the post-add plus carry) strictly lower than the pre-add?"
+		self.f.set_h((r.0 & 0xF) + carry_in as u8 > self.a & 0xF);
+		self.f.set_c(r.1);
+		self.f.set_z(r.0 == 0);
+		self.f.set_n(true);
+		self.a = r.0;
+	}
+
+	fn and(&mut self, operand: u8) {
+		self.a &= operand;
+		self.f.set_z(self.a == 0);
+		self.f.set_n(false);
+		self.f.set_h(true); // No, this is not a typo.
+		self.f.set_c(false);
+	}
+
+	fn xor(&mut self, operand: u8) {
+		self.a ^= operand;
+		self.f.set_z(self.a == 0);
+		self.f.set_n(false);
+		self.f.set_h(false);
+		self.f.set_c(false);
+	}
+
+	fn or(&mut self, operand: u8) {
+		self.a |= operand;
+		self.f.set_z(self.a == 0);
+		self.f.set_n(false);
+		self.f.set_h(false);
+		self.f.set_c(false);
+	}
+
+	fn cp(&mut self, operand: u8) {
+		let (result, carry) = self.a.overflowing_sub(operand);
+		self.f.set_h(result & 0xF > self.a & 0xF);
+		self.f.set_c(carry);
+		self.f.set_z(result == 0);
+		self.f.set_n(true);
+	}
+
+	fn rlc(&mut self, reg_id: u8) {
+		let value = self.get_r8_by_id(reg_id);
+		let value = value.rotate_left(1);
+		self.set_r8_by_id(reg_id, value);
+		self.f.set_z(value == 0);
+		self.f.set_c(value & 0x01 != 0);
+		self.f.set_n(false);
+		self.f.set_h(false);
+	}
+
+	fn rl(&mut self, reg_id: u8) {
+		let value = self.get_r8_by_id(reg_id);
+		let carry = value & 0x80 != 0;
+		let value = value.wrapping_shl(1) | self.f.get_c() as u8;
+		self.set_r8_by_id(reg_id, value);
+		self.f.set_z(value == 0);
+		self.f.set_c(carry);
+		self.f.set_n(false);
+		self.f.set_h(false);
+	}
+
+	fn rrc(&mut self, reg_id: u8) {
+		let value = self.get_r8_by_id(reg_id);
+		let value = value.rotate_right(1);
+		self.set_r8_by_id(reg_id, value);
+		self.f.set_z(value == 0);
+		self.f.set_c(value & 0x80 != 0);
+		self.f.set_n(false);
+		self.f.set_h(false);
+	}
+
+	fn rr(&mut self, reg_id: u8) {
+		let value = self.get_r8_by_id(reg_id);
+		let carry = value & 0x01 != 0;
+		let value = value.wrapping_shr(1) | (self.f.get_c() as u8) << 7;
+		self.set_r8_by_id(reg_id, value);
+		self.f.set_z(value == 0);
+		self.f.set_c(carry);
+		self.f.set_n(false);
+		self.f.set_h(false);
+	}
+
+	fn sla(&mut self, reg_id: u8) {
+		let value = self.get_r8_by_id(reg_id);
+		self.f.set_c(value & 0x80 != 0);
+		let value = value.wrapping_shl(1);
+		self.set_r8_by_id(reg_id, value);
+		self.f.set_z(value == 0);
+		self.f.set_h(false);
+		self.f.set_n(false);
+	}
+
+	fn sra(&mut self, reg_id: u8) {
+		let value = self.get_r8_by_id(reg_id);
+		self.f.set_c(value & 0x01 != 0);
+		let value = value.wrapping_shr(1) | (value & 0x80);
+		self.set_r8_by_id(reg_id, value);
+		self.f.set_z(value == 0);
+		self.f.set_h(false);
+		self.f.set_n(false);
+	}
+
+	fn swap(&mut self, reg_id: u8) {
+		let value = self.get_r8_by_id(reg_id).rotate_left(4);
+		self.set_r8_by_id(reg_id, value);
+		self.f.value = 0;
+		self.f.set_z(value == 0);
+	}
+
+	fn srl(&mut self, reg_id: u8) {
+		let value = self.get_r8_by_id(reg_id);
+		self.f.set_c(value & 0x01 != 0);
+		let value = value.wrapping_shr(1);
+		self.set_r8_by_id(reg_id, value);
+		self.f.set_z(value == 0);
+		self.f.set_h(false);
+		self.f.set_n(false);
+	}
+
+	fn ret_cc(&mut self, condition: bool) {
+		if condition {
+			self.pc = self.pop();
+			self.cycles_elapsed += 2; // pop already takes care of 2 extra cycles.
+		} else {
+			self.cycles_elapsed += 1;
+		}
+	}
+
+	fn pop(&mut self) -> u16 {
+		let mut result = (self.read(self.sp) as u16) << 8;
+		self.sp += 1;
+		result |= self.read(self.sp) as u16;
+		self.sp += 1;
+		self.cycles_elapsed += 2;
+		result
+	}
+
+	fn jp_cc(&mut self, condition: bool) {
+		if condition {
+			self.pc = (self.read_pc() as u16) | (self.read_pc() as u16) << 8;
+			self.cycles_elapsed += 1;
+		} else {
+			self.read_pc();
+			self.read_pc();
+		}
+	}
+
+	fn call_cc(&mut self, condition: bool) {
+		if condition {
+			self.push(self.pc + 2);
+			self.pc = (self.read_pc() as u16) | (self.read_pc() as u16) << 8;
+			self.cycles_elapsed += 1;
+		} else {
+			self.read_pc();
+			self.read_pc();
+		}
+	}
+
+	fn push(&mut self, value: u16) {
+		self.sp = self.sp.wrapping_sub(1);
+		self.write(self.sp, (value & 0xFF) as u8);
+		self.sp = self.sp.wrapping_sub(1);
+		self.write(self.sp, (value >> 8) as u8);
+		self.cycles_elapsed += 3;
+	}
+
+	/// Steps the CPU forward by one instruction.
+	/// [`self.cycles_elapsed`][Self::cycles_elapsed] is updated accordingly.
 	pub fn tick(&mut self) -> TickResult {
-		fn inc_r8(register: &mut u8, flags: &mut Flags) {
-			let old_register = *register;
-			*register = u8::wrapping_add(*register, 1);
-			flags.set_z(*register == 0);
-			flags.set_n(false);
-			flags.set_h(old_register & 0xF == 0xF);
-		}
-
-		fn dec_r8(register: &mut u8, flags: &mut Flags) {
-			let old_register = *register;
-			*register = u8::wrapping_sub(*register, 1);
-			flags.set_z(*register == 0);
-			flags.set_n(true);
-			flags.set_h(old_register & 0xF == 0xF);
-		}
-
-		fn rlc_r8(register: &mut u8, flags: &mut Flags) {
-			let old_register = *register;
-			*register = *register << 1 | flags.get_c() as u8;
-			flags.set_z(*register == 0);
-			flags.set_n(false);
-			flags.set_h(false);
-			flags.set_c(old_register & 0b10000000 != 0);
-		}
-
-		fn rl_r8(register: &mut u8, flags: &mut Flags) {
-			let old_register = *register;
-			*register = register.rotate_left(1) | flags.get_c() as u8;
-			flags.set_z(*register == 0);
-			flags.set_n(false);
-			flags.set_h(false);
-			flags.set_c(old_register & 0b10000000 != 0);
-		}
-
-		fn rrc_r8(register: &mut u8, flags: &mut Flags) {
-			let old_register = *register;
-			*register = *register >> 1 | (flags.get_c() as u8) << 7;
-			flags.set_z(*register == 0);
-			flags.set_n(false);
-			flags.set_h(false);
-			flags.set_c(old_register & 1 != 0);
-		}
-
-		fn rr_r8(register: &mut u8, flags: &mut Flags) {
-			let old_register = *register;
-			*register = register.rotate_right(1) | (flags.get_c() as u8) << 7;
-			flags.set_z(*register == 0);
-			flags.set_n(false);
-			flags.set_h(false);
-			flags.set_c(old_register & 1 != 0);
-		}
-
-		fn sla_r8(register: u8, flags: &mut Flags) -> u8 {
-			flags.set_c(register & 0x80 != 0);
-			flags.set_n(false);
-			flags.set_h(false);
-			let result = register << 1;
-			flags.set_z(result == 0);
-			result
-		}
-
-		fn sra_r8(register: u8, flags: &mut Flags) -> u8 {
-			flags.set_c(register & 1 != 0);
-			flags.set_n(false);
-			flags.set_h(false);
-			let result = register >> 1 | register & 0x80;
-			flags.set_z(result == 0);
-			result
-		}
-
-		fn swap_r8(register: u8, flags: &mut Flags) -> u8 {
-			let result = register.rotate_right(4);
-			flags.set_z(result == 0);
-			flags.set_n(false);
-			flags.set_h(false);
-			flags.set_c(false);
-			result
-		}
-
-		fn srl_r8(register: u8, flags: &mut Flags) -> u8 {
-			flags.set_c(register & 1 != 0);
-			flags.set_n(false);
-			flags.set_h(false);
-			let result = register >> 1;
-			flags.set_z(result == 0);
-			result
-		}
-
-		fn bit_r8(register: u8, bit: u8, flags: &mut Flags) {
-			flags.set_z(register & 1 << bit == 0);
-			flags.set_n(false);
-			flags.set_h(true);
-		}
-
-		fn set_r8(register: u8, bit: u8) -> u8 {
-			register | 1 << bit
-		}
-		fn res_r8(register: u8, bit: u8) -> u8 {
-			register & !(1 << bit)
-		}
-
-		fn add_hl_r16(value: u16, cpu: &mut State) {
-			let old_hl = cpu.get_hl();
-			cpu.set_hl(u16::wrapping_add(cpu.get_hl(), value));
-			cpu.f.set_n(false);
-			cpu.f
-				.set_h((old_hl & 0xFFF + value & 0xFFF > 0xFFF) == true);
-			cpu.f.set_c(old_hl > cpu.get_hl());
-			cpu.cycles_elapsed += 1;
-		}
-
-		fn add_a_r8(value: u8, cpu: &mut State) {
-			let old_a = cpu.a;
-			cpu.a = u8::wrapping_add(cpu.a, value);
-			cpu.f.set_z(cpu.a == 0);
-			cpu.f.set_n(false);
-			cpu.f.set_h(((old_a & 0xF) + (value & 0xF) > 0xF) == true);
-			cpu.f.set_c(old_a > cpu.a);
-		}
-
-		fn adc_a_r8(value: u8, cpu: &mut State) {
-			let carry = cpu.f.get_c() as u8;
-			let old_a = cpu.a;
-			cpu.a = u8::wrapping_add(cpu.a, value);
-			cpu.a = u8::wrapping_add(cpu.a, carry);
-			cpu.f.set_z(cpu.a == 0);
-			cpu.f.set_n(false);
-			cpu.f
-				.set_h((old_a & 0xF + value & 0xF + carry > 0xF) == true);
-			cpu.f
-				.set_c(old_a as u16 + value as u16 + carry as u16 > 0xFF);
-		}
-
-		fn sub_a_r8(value: u8, cpu: &mut State) {
-			let old_a = cpu.a;
-			cpu.a = u8::wrapping_sub(cpu.a, value);
-			cpu.f.set_z(cpu.a == 0);
-			cpu.f.set_n(true);
-			cpu.f
-				.set_h((((old_a & 0xF) as i8) < ((value & 0xF) as i8)) == true);
-			cpu.f.set_c(old_a < cpu.a);
-		}
-
-		fn sbc_a_r8(value: u8, cpu: &mut State) {
-			let carry = cpu.f.get_c() as u8;
-			let old_a = cpu.a;
-			cpu.a = u8::wrapping_add(cpu.a, value);
-			cpu.a = u8::wrapping_add(cpu.a, carry);
-			cpu.f.set_z(cpu.a == 0);
-			cpu.f.set_n(true);
-			cpu.f
-				.set_h((((old_a & 0xF) as i8) < (((value & 0xF) + carry) as i8)) == true);
-			cpu.f
-				.set_c((old_a as i16 - value as i16 - carry as i16) < 0);
-		}
-
-		fn and_a_r8(value: u8, cpu: &mut State) {
-			cpu.a &= value;
-			cpu.f.set_z(cpu.a == 0);
-			cpu.f.set_n(false);
-			cpu.f.set_h(true);
-			cpu.f.set_c(false);
-		}
-
-		fn xor_a_r8(value: u8, cpu: &mut State) {
-			cpu.a ^= value;
-			cpu.f.set_z(cpu.a == 0);
-			cpu.f.set_n(false);
-			cpu.f.set_h(false);
-			cpu.f.set_c(false);
-		}
-
-		fn or_a_r8(value: u8, cpu: &mut State) {
-			cpu.a |= value;
-			cpu.f.set_z(cpu.a == 0);
-			cpu.f.set_n(false);
-			cpu.f.set_h(false);
-			cpu.f.set_c(false);
-		}
-
-		fn cp_a_r8(value: u8, cpu: &mut State) {
-			let old_a = cpu.a;
-			let result = u8::wrapping_sub(cpu.a, value);
-			cpu.f.set_z(result == 0);
-			cpu.f.set_n(true);
-			cpu.f
-				.set_h((((old_a & 0xF) as i8) < ((value & 0xF) as i8)) == true);
-			cpu.f.set_c(value > result);
-		}
-
-		fn push(value: u16, cpu: &mut State) {
-			cpu.sp = u16::wrapping_sub(cpu.sp, 1);
-			cpu.write(cpu.sp, (value & 0xFF) as u8);
-			cpu.sp = u16::wrapping_sub(cpu.sp, 1);
-			cpu.write(cpu.sp, (value >> 8) as u8);
-			cpu.cycles_elapsed += 3;
-		}
-
-		fn pop(cpu: &mut State) -> u16 {
-			let mut result = (cpu.read(cpu.sp) as u16) << 8;
-			cpu.sp += 1;
-			result |= cpu.read(cpu.sp) as u16;
-			cpu.sp += 1;
-			cpu.cycles_elapsed += 2;
-			result
-		}
-
-		fn call_cc(condition: bool, cpu: &mut State) {
-			if condition {
-				push(cpu.pc + 2, cpu);
-				cpu.pc = (cpu.read_pc() as u16) | (cpu.read_pc() as u16) << 8;
-				cpu.cycles_elapsed += 1;
-			} else {
-				cpu.read_pc();
-				cpu.read_pc();
-			}
-		}
-
-		fn ret_cc(condition: bool, cpu: &mut State) {
-			if condition {
-				cpu.pc = pop(cpu);
-				cpu.cycles_elapsed += 2; // pop already takes care of 2 extra cycles.
-			} else {
-				cpu.cycles_elapsed += 1;
-			}
-		}
-
-		fn jp_cc(condition: bool, cpu: &mut State) {
-			if condition {
-				cpu.pc = (cpu.read_pc() as u16) | (cpu.read_pc() as u16) << 8;
-				cpu.cycles_elapsed += 1;
-			} else {
-				cpu.read_pc();
-				cpu.read_pc();
-			}
-		}
-
-		fn jr_cc(condition: bool, cpu: &mut State) {
-			let offset = cpu.read_pc() as i8;
-			if condition {
-				cpu.pc = i16::wrapping_add(cpu.pc as i16, offset as i16) as u16;
-				cpu.cycles_elapsed += 1;
-			}
-		}
-
 		match self.read_pc() {
 			/* nop */ 0x00 => {}
 			/* ld bc, u16 */
@@ -381,35 +419,47 @@ impl State {
 			}
 			/* inc bc */
 			0x03 => {
-				self.set_bc(u16::wrapping_add(self.get_bc(), 1));
+				self.set_bc(self.get_bc().wrapping_add(1));
 				self.cycles_elapsed += 1;
 			}
-			/* inc b */
-			0x04 => {
-				inc_r8(&mut self.b, &mut self.f);
+			/* inc r8 */
+			opcode @ (0x04 | 0x0C | 0x14 | 0x1C | 0x24 | 0x2C | 0x34 | 0x3C) => {
+				let reg_id = opcode >> 3;
+				let value = self.get_r8_by_id(reg_id).wrapping_add(1);
+				self.set_r8_by_id(reg_id, value);
+				self.f.set_z(value == 0);
+				self.f.set_n(false);
+				self.f.set_h(value & 0xF == 0);
 			}
-			/* dec b */
-			0x05 => {
-				dec_r8(&mut self.b, &mut self.f);
+			/* dec r8 */
+			opcode @ (0x05 | 0x0D | 0x15 | 0x1D | 0x25 | 0x2D | 0x35 | 0x3D) => {
+				let reg_id = opcode >> 3;
+				let value = self.get_r8_by_id(reg_id).wrapping_sub(1);
+				self.set_r8_by_id(reg_id, value);
+				self.f.set_z(value == 0);
+				self.f.set_n(true);
+				self.f.set_h(value & 0xF == 0xF);
 			}
-			/* ld b, u8 */ 0x06 => {
-				self.b = self.read_pc();
+			/* ld r8, u8 */
+			opcode @ (0x06 | 0x0E | 0x16 | 0x1E | 0x26 | 0x2E | 0x36 | 0x3E) => {
+				let value = self.read_pc();
+				self.set_r8_by_id(opcode >> 3, value);
 			}
 			/* rlca */
 			0x07 => {
-				rlc_r8(&mut self.a, &mut self.f);
+				self.rlc(7);
 				self.f.set_z(false);
 			}
 			/* ld [u16], sp */
 			0x08 => {
-				let pointer = (self.read_pc() as u16) | (self.read_pc() as u16) << 8;
+				let pointer = u16::from_le_bytes([self.read_pc(), self.read_pc()]);
 				self.write(pointer, (self.sp & 0xFF) as u8);
 				self.write(pointer + 1, (self.sp >> 8) as u8);
 				self.cycles_elapsed += 4;
 			}
 			/* add hl, bc */
 			0x09 => {
-				add_hl_r16(self.get_bc(), self);
+				self.add_hl_r16(self.get_bc());
 			}
 			/* ld a, [bc] */
 			0x0A => {
@@ -418,23 +468,12 @@ impl State {
 			}
 			/* dec bc */
 			0x0B => {
-				self.set_bc(u16::wrapping_sub(self.get_bc(), 1));
+				self.set_bc(self.get_bc().wrapping_sub(1));
 				self.cycles_elapsed += 1;
-			}
-			/* inc c */
-			0x0C => {
-				inc_r8(&mut self.c, &mut self.f);
-			}
-			/* dec c */
-			0x0D => {
-				dec_r8(&mut self.c, &mut self.f);
-			}
-			/* ld c, u8 */ 0x0E => {
-				self.c = self.read_pc();
 			}
 			/* rrca */
 			0x0F => {
-				rrc_r8(&mut self.a, &mut self.f);
+				self.rrc(7);
 				self.f.set_z(false);
 			}
 			/* stop */
@@ -454,31 +493,20 @@ impl State {
 			}
 			/* inc de */
 			0x13 => {
-				self.set_de(u16::wrapping_add(self.get_de(), 1));
+				self.set_de(self.get_de().wrapping_add(1));
 				self.cycles_elapsed += 1;
-			}
-			/* inc d */
-			0x14 => {
-				inc_r8(&mut self.d, &mut self.f);
-			}
-			/* dec d */
-			0x15 => {
-				dec_r8(&mut self.d, &mut self.f);
-			}
-			/* ld d, u8 */ 0x16 => {
-				self.d = self.read_pc();
 			}
 			/* rla */
 			0x17 => {
-				rl_r8(&mut self.a, &mut self.f);
+				self.rl(7);
 				self.f.set_z(false);
 			}
 			/* jr u8 */ 0x18 => {
-				jr_cc(true, self);
+				self.jr_cc(true);
 			}
 			/* add hl, de */
 			0x19 => {
-				add_hl_r16(self.get_de(), self);
+				self.add_hl_r16(self.get_de());
 			}
 			/* ld a, [de] */
 			0x1A => {
@@ -487,27 +515,16 @@ impl State {
 			}
 			/* dec de */
 			0x1B => {
-				self.set_de(u16::wrapping_sub(self.get_de(), 1));
+				self.set_de(self.get_de().wrapping_sub(1));
 				self.cycles_elapsed += 1;
-			}
-			/* inc e */
-			0x1C => {
-				inc_r8(&mut self.e, &mut self.f);
-			}
-			/* dec e */
-			0x1D => {
-				dec_r8(&mut self.e, &mut self.f);
-			}
-			/* ld e, u8 */ 0x1E => {
-				self.e = self.read_pc();
 			}
 			/* rra */
 			0x1F => {
-				rr_r8(&mut self.a, &mut self.f);
+				self.rr(7);
 				self.f.set_z(false);
 			}
 			/* jr nz */ 0x20 => {
-				jr_cc(!self.f.get_z(), self);
+				self.jr_cc(!self.f.get_z());
 			}
 			/* ld hl, u16 */
 			0x21 => {
@@ -517,24 +534,13 @@ impl State {
 			/* ld [hli], a */
 			0x22 => {
 				self.write(self.get_hl(), self.a);
-				self.set_hl(u16::wrapping_add(self.get_hl(), 1));
+				self.set_hl(self.get_hl().wrapping_add(1));
 				self.cycles_elapsed += 1;
 			}
 			/* inc hl */
 			0x23 => {
-				self.set_hl(u16::wrapping_add(self.get_hl(), 1));
+				self.set_hl(self.get_hl().wrapping_add(1));
 				self.cycles_elapsed += 1;
-			}
-			/* inc h */
-			0x24 => {
-				inc_r8(&mut self.h, &mut self.f);
-			}
-			/* dec h */
-			0x25 => {
-				dec_r8(&mut self.h, &mut self.f);
-			}
-			/* ld h, u8 */ 0x26 => {
-				self.h = self.read_pc();
 			}
 			/* daa */
 			0x27 => {
@@ -547,81 +553,50 @@ impl State {
 				let adjustment =
 					if self.f.get_h() { 0x6 } else { 0 } | if self.f.get_c() { 0x60 } else { 0 };
 				if self.f.get_n() {
-					self.a = u8::wrapping_sub(self.a, adjustment);
+					self.a = self.a.wrapping_sub(adjustment);
 				} else {
-					self.a = u8::wrapping_add(self.a, adjustment);
+					self.a = self.a.wrapping_add(adjustment);
 				}
 				self.f.set_z(self.a == 0);
 				self.f.set_h(false);
 			}
 			/* jr z */ 0x28 => {
-				jr_cc(self.f.get_z(), self);
+				self.jr_cc(self.f.get_z());
 			}
 			/* add hl, hl */
 			0x29 => {
-				add_hl_r16(self.get_hl(), self);
+				self.add_hl_r16(self.get_hl());
 			}
 			/* ld a, [hli] */
 			0x2A => {
 				self.a = self.read(self.get_hl());
-				self.set_hl(u16::wrapping_add(self.get_hl(), 1));
+				self.set_hl(self.get_hl().wrapping_add(1));
 				self.cycles_elapsed += 1;
 			}
 			/* dec hl */
 			0x2B => {
-				self.set_hl(u16::wrapping_sub(self.get_hl(), 1));
+				self.set_hl(self.get_hl().wrapping_sub(1));
 				self.cycles_elapsed += 1;
-			}
-			/* inc l */
-			0x2C => {
-				inc_r8(&mut self.l, &mut self.f);
-			}
-			/* dec l */
-			0x2D => {
-				dec_r8(&mut self.l, &mut self.f);
-			}
-			/* ld l, u8 */ 0x2E => {
-				self.l = self.read_pc();
 			}
 			/* cpl */ 0x2F => {
 				self.a = !self.a;
 			}
 			/* jr nc */ 0x30 => {
-				jr_cc(!self.f.get_c(), self);
+				self.jr_cc(!self.f.get_c());
 			}
 			/* ld sp, u16 */
 			0x31 => {
-				self.sp = self.read_pc() as u16 | (self.read_pc() as u16) << 8;
+				self.sp = u16::from_le_bytes([self.read_pc(), self.read_pc()]);
 			}
 			/* ld [hld], a */
 			0x32 => {
 				self.write(self.get_hl(), self.a);
-				self.set_hl(u16::wrapping_sub(self.get_hl(), 1));
+				self.set_hl(self.get_hl().wrapping_sub(1));
 				self.cycles_elapsed += 1;
 			}
 			/* inc sp */
 			0x33 => {
-				self.sp = u16::wrapping_add(self.sp, 1);
-				self.cycles_elapsed += 1;
-			}
-			/* inc [hl] */
-			0x34 => {
-				let mut value = self.read(self.get_hl());
-				inc_r8(&mut value, &mut self.f);
-				self.write(self.get_hl(), value);
-				self.cycles_elapsed += 2;
-			}
-			/* dec [hl] */
-			0x35 => {
-				let mut value = self.read(self.get_hl());
-				dec_r8(&mut value, &mut self.f);
-				self.write(self.get_hl(), value);
-				self.cycles_elapsed += 2;
-			}
-			/* ld [hl], u8 */
-			0x36 => {
-				let value = self.read_pc();
-				self.write(self.get_hl(), value);
+				self.sp = self.sp.wrapping_add(1);
 				self.cycles_elapsed += 1;
 			}
 			/* scf */
@@ -631,32 +606,21 @@ impl State {
 				self.f.set_c(true);
 			}
 			/* jr c */ 0x38 => {
-				jr_cc(self.f.get_c(), self);
+				self.jr_cc(self.f.get_c());
 			}
 			/* add hl, sp */ 0x39 => {
-				add_hl_r16(self.sp, self);
+				self.add_hl_r16(self.sp);
 			}
 			/* ld a, [hld] */
 			0x3A => {
 				self.a = self.read(self.get_hl());
-				self.set_hl(u16::wrapping_sub(self.get_hl(), 1));
+				self.set_hl(self.get_hl().wrapping_sub(1));
 				self.cycles_elapsed += 1;
 			}
 			/* dec sp */
 			0x3B => {
-				self.sp = u16::wrapping_sub(self.sp, 1);
+				self.sp = self.sp.wrapping_sub(1);
 				self.cycles_elapsed += 1;
-			}
-			/* inc a */
-			0x3C => {
-				inc_r8(&mut self.a, &mut self.f);
-			}
-			/* dec a */
-			0x3D => {
-				dec_r8(&mut self.a, &mut self.f);
-			}
-			/* ld a, u8 */ 0x3E => {
-				self.a = self.read_pc();
 			}
 			/* ccf */
 			0x3F => {
@@ -664,1421 +628,216 @@ impl State {
 				self.f.set_h(false);
 				self.f.set_c(!self.f.get_c());
 			}
-			/* ld b family */
+
+			/* ld b,b */
 			0x40 => {
 				return TickResult::Break;
 			}
-			0x41 => {
-				self.b = self.c;
-			}
-			0x42 => {
-				self.b = self.d;
-			}
-			0x43 => {
-				self.b = self.e;
-			}
-			0x44 => {
-				self.b = self.h;
-			}
-			0x45 => {
-				self.b = self.l;
-			}
-			0x46 => {
-				self.b = self.read(self.get_hl());
-				self.cycles_elapsed += 1;
-			}
-			0x47 => {
-				self.b = self.a;
-			}
-			/* ld c family */
-			0x48 => {
-				self.c = self.b;
-			}
-			0x49 => {
-				self.c = self.c;
-			}
-			0x4A => {
-				self.c = self.d;
-			}
-			0x4B => {
-				self.c = self.e;
-			}
-			0x4C => {
-				self.c = self.h;
-			}
-			0x4D => {
-				self.c = self.l;
-			}
-			0x4E => {
-				self.c = self.read(self.get_hl());
-				self.cycles_elapsed += 1;
-			}
-			0x4F => {
-				self.c = self.a;
-			}
-			/* ld d family */
-			0x50 => {
-				self.d = self.b;
-			}
-			0x51 => {
-				self.d = self.c;
-			}
+			/* ld d, d */
 			0x52 => {
 				return TickResult::Debug;
 			}
-			0x53 => {
-				self.d = self.e;
-			}
-			0x54 => {
-				self.d = self.h;
-			}
-			0x55 => {
-				self.d = self.l;
-			}
-			0x56 => {
-				self.d = self.read(self.get_hl());
-				self.cycles_elapsed += 1;
-			}
-			0x57 => {
-				self.d = self.a;
-			}
-			/* ld e family */
-			0x58 => {
-				self.e = self.b;
-			}
-			0x59 => {
-				self.e = self.c;
-			}
-			0x5A => {
-				self.e = self.d;
-			}
-			0x5B => {
-				self.e = self.e;
-			}
-			0x5C => {
-				self.e = self.h;
-			}
-			0x5D => {
-				self.e = self.l;
-			}
-			0x5E => {
-				self.e = self.read(self.get_hl());
-				self.cycles_elapsed += 1;
-			}
-			0x5F => {
-				self.e = self.a;
-			}
-			/* ld h family */
-			0x60 => {
-				self.h = self.b;
-			}
-			0x61 => {
-				self.h = self.c;
-			}
-			0x62 => {
-				self.h = self.d;
-			}
-			0x63 => {
-				self.h = self.e;
-			}
-			0x64 => {
-				self.h = self.h;
-			}
-			0x65 => {
-				self.h = self.l;
-			}
-			0x66 => {
-				self.h = self.read(self.get_hl());
-				self.cycles_elapsed += 1;
-			}
-			0x67 => {
-				self.h = self.a;
-			}
-			/* ld l family */
-			0x68 => {
-				self.l = self.b;
-			}
-			0x69 => {
-				self.l = self.c;
-			}
-			0x6A => {
-				self.l = self.d;
-			}
-			0x6B => {
-				self.l = self.e;
-			}
-			0x6C => {
-				self.l = self.h;
-			}
-			0x6D => {
-				self.l = self.l;
-			}
-			0x6E => {
-				self.l = self.read(self.get_hl());
-				self.cycles_elapsed += 1;
-			}
-			0x6F => {
-				self.l = self.a;
-			}
-			/* ld [hl] family */
-			0x70 => {
-				self.write(self.get_hl(), self.b);
-			}
-			0x71 => {
-				self.write(self.get_hl(), self.c);
-			}
-			0x72 => {
-				self.write(self.get_hl(), self.d);
-			}
-			0x73 => {
-				self.write(self.get_hl(), self.e);
-			}
-			0x74 => {
-				self.write(self.get_hl(), self.h);
-			}
-			0x75 => {
-				self.write(self.get_hl(), self.l);
-			}
-			/* halt */
+			/* ld [hl], [hl] is actually halt */
 			0x76 => {
 				return TickResult::Halt;
 			}
-			/* ld [hl], a */
-			0x77 => {
-				self.write(self.get_hl(), self.a);
-				self.cycles_elapsed += 1;
-			}
-			/* ld a family */
-			0x78 => {
-				self.a = self.b;
-			}
-			0x79 => {
-				self.a = self.c;
-			}
-			0x7A => {
-				self.a = self.d;
-			}
-			0x7B => {
-				self.a = self.e;
-			}
-			0x7C => {
-				self.a = self.h;
-			}
-			0x7D => {
-				self.a = self.l;
-			}
-			0x7E => {
-				self.a = self.read(self.get_hl());
-				self.cycles_elapsed += 1;
-			}
-			0x7F => {
-				self.a = self.a;
-			}
-			/* add family */
-			0x80 => {
-				add_a_r8(self.b, self);
-			}
-			0x81 => {
-				add_a_r8(self.c, self);
-			}
-			0x82 => {
-				add_a_r8(self.d, self);
-			}
-			0x83 => {
-				add_a_r8(self.e, self);
-			}
-			0x84 => {
-				add_a_r8(self.h, self);
-			}
-			0x85 => {
-				add_a_r8(self.l, self);
-			}
-			0x86 => {
-				add_a_r8(self.read(self.get_hl()), self);
-				self.cycles_elapsed += 1;
-			}
-			0x87 => {
-				add_a_r8(self.a, self);
-			}
-			/* adc family */
-			0x88 => {
-				adc_a_r8(self.b, self);
-			}
-			0x89 => {
-				adc_a_r8(self.c, self);
-			}
-			0x8A => {
-				adc_a_r8(self.d, self);
-			}
-			0x8B => {
-				adc_a_r8(self.e, self);
-			}
-			0x8C => {
-				adc_a_r8(self.h, self);
-			}
-			0x8D => {
-				adc_a_r8(self.l, self);
-			}
-			0x8E => {
-				adc_a_r8(self.read(self.get_hl()), self);
-				self.cycles_elapsed += 1;
-			}
-			0x8F => {
-				adc_a_r8(self.a, self);
-			}
-			/* sub family */
-			0x90 => {
-				sub_a_r8(self.b, self);
-			}
-			0x91 => {
-				sub_a_r8(self.c, self);
-			}
-			0x92 => {
-				sub_a_r8(self.d, self);
-			}
-			0x93 => {
-				sub_a_r8(self.e, self);
-			}
-			0x94 => {
-				sub_a_r8(self.h, self);
-			}
-			0x95 => {
-				sub_a_r8(self.l, self);
-			}
-			0x96 => {
-				sub_a_r8(self.read(self.get_hl()), self);
-				self.cycles_elapsed += 1;
-			}
-			0x97 => {
-				sub_a_r8(self.a, self);
-			}
-			/* sbc family */
-			0x98 => {
-				sbc_a_r8(self.b, self);
-			}
-			0x99 => {
-				sbc_a_r8(self.c, self);
-			}
-			0x9A => {
-				sbc_a_r8(self.d, self);
-			}
-			0x9B => {
-				sbc_a_r8(self.e, self);
-			}
-			0x9C => {
-				sbc_a_r8(self.h, self);
-			}
-			0x9D => {
-				sbc_a_r8(self.l, self);
-			}
-			0x9E => {
-				sbc_a_r8(self.read(self.get_hl()), self);
-				self.cycles_elapsed += 1;
-			}
-			0x9F => {
-				sbc_a_r8(self.a, self);
-			}
-			/* and family */
-			0xA0 => {
-				and_a_r8(self.b, self);
-			}
-			0xA1 => {
-				and_a_r8(self.c, self);
-			}
-			0xA2 => {
-				and_a_r8(self.d, self);
-			}
-			0xA3 => {
-				and_a_r8(self.e, self);
-			}
-			0xA4 => {
-				and_a_r8(self.h, self);
-			}
-			0xA5 => {
-				and_a_r8(self.l, self);
-			}
-			0xA6 => {
-				and_a_r8(self.read(self.get_hl()), self);
-				self.cycles_elapsed += 1;
-			}
-			0xA7 => {
-				and_a_r8(self.a, self);
-			}
-			/* xor family */
-			0xA8 => {
-				xor_a_r8(self.b, self);
-			}
-			0xA9 => {
-				xor_a_r8(self.c, self);
-			}
-			0xAA => {
-				xor_a_r8(self.d, self);
-			}
-			0xAB => {
-				xor_a_r8(self.e, self);
-			}
-			0xAC => {
-				xor_a_r8(self.h, self);
-			}
-			0xAD => {
-				xor_a_r8(self.l, self);
-			}
-			0xAE => {
-				xor_a_r8(self.read(self.get_hl()), self);
-				self.cycles_elapsed += 1;
-			}
-			0xAF => {
-				xor_a_r8(self.a, self);
-			}
-			/* or family */
-			0xB0 => {
-				or_a_r8(self.b, self);
-			}
-			0xB1 => {
-				or_a_r8(self.c, self);
-			}
-			0xB2 => {
-				or_a_r8(self.d, self);
-			}
-			0xB3 => {
-				or_a_r8(self.e, self);
-			}
-			0xB4 => {
-				or_a_r8(self.h, self);
-			}
-			0xB5 => {
-				or_a_r8(self.l, self);
-			}
-			0xB6 => {
-				or_a_r8(self.read(self.get_hl()), self);
-				self.cycles_elapsed += 1;
-			}
-			0xB7 => {
-				or_a_r8(self.a, self);
-			}
-			/* cp family */
-			0xB8 => {
-				cp_a_r8(self.b, self);
-			}
-			0xB9 => {
-				cp_a_r8(self.c, self);
-			}
-			0xBA => {
-				cp_a_r8(self.d, self);
-			}
-			0xBB => {
-				cp_a_r8(self.e, self);
-			}
-			0xBC => {
-				cp_a_r8(self.h, self);
-			}
-			0xBD => {
-				cp_a_r8(self.l, self);
-			}
-			0xBE => {
-				cp_a_r8(self.read(self.get_hl()), self);
-				self.cycles_elapsed += 1;
-			}
-			0xBF => {
-				cp_a_r8(self.a, self);
-			}
+			/* ld r8,r8 family, special cases handled above */
+			opcode @ 0x40..=0x7F => {
+				let value = self.get_r8_by_id(opcode & 7);
+				self.set_r8_by_id((opcode >> 3) & 7, value);
+			}
+
+			/* add a, r8 */
+			opcode @ 0x80..=0x87 => {
+				let value = self.get_r8_by_id(opcode & 7);
+				self.add(value, false);
+			}
+			/* adc a, r8 */
+			opcode @ 0x88..=0x8F => {
+				let value = self.get_r8_by_id(opcode & 7);
+				self.add(value, self.f.get_c());
+			}
+			/* sub a, r8 */
+			opcode @ 0x90..=0x97 => {
+				let value = self.get_r8_by_id(opcode & 7);
+				self.sub(value, false);
+			}
+			/* sbc a, r8 */
+			opcode @ 0x98..=0x9F => {
+				let value = self.get_r8_by_id(opcode & 7);
+				self.sub(value, self.f.get_c());
+			}
+			/* and a, r8 */
+			opcode @ 0xA0..=0xA7 => {
+				let value = self.get_r8_by_id(opcode & 7);
+				self.and(value);
+			}
+			/* xor a, r8 */
+			opcode @ 0xA8..=0xAF => {
+				let value = self.get_r8_by_id(opcode & 7);
+				self.xor(value);
+			}
+			/* or a, r8 */
+			opcode @ 0xB0..=0xB7 => {
+				let value = self.get_r8_by_id(opcode & 7);
+				self.or(value);
+			}
+			/* cp a, r8 */
+			opcode @ 0xB8..=0xBF => {
+				let value = self.get_r8_by_id(opcode & 7);
+				self.cp(value);
+			}
+
 			/* ret nz */
 			0xC0 => {
-				ret_cc(!self.f.get_z(), self);
+				self.ret_cc(!self.f.get_z());
 			}
 			/* pop bc */
 			0xC1 => {
-				let value = pop(self);
+				let value = self.pop();
 				self.set_bc(value);
 			}
 			/* jp nz */
 			0xC2 => {
-				jp_cc(!self.f.get_z(), self);
+				self.jp_cc(!self.f.get_z());
 			}
 			/* jp */
 			0xC3 => {
-				jp_cc(true, self);
+				self.jp_cc(true);
 			}
 			/* call nz */
 			0xC4 => {
-				call_cc(!self.f.get_z(), self);
+				self.call_cc(!self.f.get_z());
 			}
 			/* push bc */
 			0xC5 => {
-				push(self.get_bc(), self);
+				self.push(self.get_bc());
 			}
 			/* add a, u8 */
-			0xC6 => add_a_r8(self.read_pc(), self),
-			/* rst 0 */
-			0xC7 => {
-				push(self.pc, self);
-				self.pc = 0x0000;
+			0xC6 => {
+				let value = self.read_pc();
+				self.add(value, false)
+			}
+			/* rst xx */
+			opcode @ (0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF) => {
+				self.push(self.pc);
+				self.pc = (opcode & 7).into();
 				self.cycles_elapsed += 1;
 			}
 			/* ret z */
 			0xC8 => {
-				ret_cc(self.f.get_z(), self);
+				self.ret_cc(self.f.get_z());
 			}
 			/* ret */
 			0xC9 => {
-				ret_cc(true, self);
+				self.ret_cc(true);
 			}
 			/* jp z */
 			0xCA => {
-				jp_cc(self.f.get_z(), self);
+				self.jp_cc(self.f.get_z());
 			}
 			/* prefix byte */
 			0xCB => {
 				match self.read_pc() {
 					/* rlc r8 */
-					0x00 => {
-						rlc_r8(&mut self.b, &mut self.f);
-					}
-					0x01 => {
-						rlc_r8(&mut self.c, &mut self.f);
-					}
-					0x02 => {
-						rlc_r8(&mut self.d, &mut self.f);
-					}
-					0x03 => {
-						rlc_r8(&mut self.e, &mut self.f);
-					}
-					0x04 => {
-						rlc_r8(&mut self.h, &mut self.f);
-					}
-					0x05 => {
-						rlc_r8(&mut self.l, &mut self.f);
-					}
-					0x06 => {
-						let mut value = self.address_space.read(self.get_hl());
-						rlc_r8(&mut value, &mut self.f);
-						self.address_space.write(self.get_hl(), value);
-					}
-					0x07 => {
-						rlc_r8(&mut self.a, &mut self.f);
-					}
+					opcode @ 0x00..=0x07 => self.rlc(opcode & 7),
 					/* rrc r8 */
-					0x08 => {
-						rrc_r8(&mut self.b, &mut self.f);
-					}
-					0x09 => {
-						rrc_r8(&mut self.c, &mut self.f);
-					}
-					0x0A => {
-						rrc_r8(&mut self.d, &mut self.f);
-					}
-					0x0B => {
-						rrc_r8(&mut self.e, &mut self.f);
-					}
-					0x0C => {
-						rrc_r8(&mut self.h, &mut self.f);
-					}
-					0x0D => {
-						rrc_r8(&mut self.l, &mut self.f);
-					}
-					0x0E => {
-						let mut value = self.address_space.read(self.get_hl());
-						rrc_r8(&mut value, &mut self.f);
-						self.address_space.write(self.get_hl(), value);
-					}
-					0x0F => {
-						rrc_r8(&mut self.a, &mut self.f);
-					}
+					opcode @ 0x08..=0x0F => self.rrc(opcode & 7),
 					/* rl r8 */
-					0x10 => {
-						rl_r8(&mut self.b, &mut self.f);
-					}
-					0x11 => {
-						rl_r8(&mut self.c, &mut self.f);
-					}
-					0x12 => {
-						rl_r8(&mut self.d, &mut self.f);
-					}
-					0x13 => {
-						rl_r8(&mut self.e, &mut self.f);
-					}
-					0x14 => {
-						rl_r8(&mut self.h, &mut self.f);
-					}
-					0x15 => {
-						rl_r8(&mut self.l, &mut self.f);
-					}
-					0x16 => {
-						let mut value = self.address_space.read(self.get_hl());
-						rl_r8(&mut value, &mut self.f);
-						self.address_space.write(self.get_hl(), value);
-					}
-					0x17 => {
-						rl_r8(&mut self.a, &mut self.f);
-					}
+					opcode @ 0x10..=0x17 => self.rl(opcode & 7),
 					/* rr r8 */
-					0x18 => {
-						rr_r8(&mut self.b, &mut self.f);
-					}
-					0x19 => {
-						rr_r8(&mut self.c, &mut self.f);
-					}
-					0x1A => {
-						rr_r8(&mut self.d, &mut self.f);
-					}
-					0x1B => {
-						rr_r8(&mut self.e, &mut self.f);
-					}
-					0x1C => {
-						rr_r8(&mut self.h, &mut self.f);
-					}
-					0x1D => {
-						rr_r8(&mut self.l, &mut self.f);
-					}
-					0x1E => {
-						let mut value = self.address_space.read(self.get_hl());
-						rr_r8(&mut value, &mut self.f);
-						self.address_space.write(self.get_hl(), value);
-					}
-					0x1F => {
-						rr_r8(&mut self.a, &mut self.f);
-					}
+					opcode @ 0x18..=0x1F => self.rr(opcode & 7),
 					/* sla r8 */
-					0x20 => {
-						sla_r8(self.b, &mut self.f);
-					}
-					0x21 => {
-						sla_r8(self.c, &mut self.f);
-					}
-					0x22 => {
-						sla_r8(self.d, &mut self.f);
-					}
-					0x23 => {
-						sla_r8(self.e, &mut self.f);
-					}
-					0x24 => {
-						sla_r8(self.h, &mut self.f);
-					}
-					0x25 => {
-						sla_r8(self.l, &mut self.f);
-					}
-					0x26 => {
-						self.address_space.write(
-							self.get_hl(),
-							sla_r8(self.address_space.read(self.get_hl()), &mut self.f),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0x27 => {
-						sla_r8(self.a, &mut self.f);
-					}
+					opcode @ 0x20..=0x27 => self.sla(opcode & 7),
 					/* sra r8 */
-					0x28 => {
-						sra_r8(self.b, &mut self.f);
-					}
-					0x29 => {
-						sra_r8(self.c, &mut self.f);
-					}
-					0x2A => {
-						sra_r8(self.d, &mut self.f);
-					}
-					0x2B => {
-						sra_r8(self.e, &mut self.f);
-					}
-					0x2C => {
-						sra_r8(self.h, &mut self.f);
-					}
-					0x2D => {
-						sra_r8(self.l, &mut self.f);
-					}
-					0x2E => {
-						self.address_space.write(
-							self.get_hl(),
-							sra_r8(self.address_space.read(self.get_hl()), &mut self.f),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0x2F => {
-						sra_r8(self.a, &mut self.f);
-					}
+					opcode @ 0x28..=0x2F => self.sra(opcode & 7),
 					/* swap r8 */
-					0x30 => {
-						self.b = swap_r8(self.b, &mut self.f);
-					}
-					0x31 => {
-						self.c = swap_r8(self.c, &mut self.f);
-					}
-					0x32 => {
-						self.d = swap_r8(self.d, &mut self.f);
-					}
-					0x33 => {
-						self.e = swap_r8(self.e, &mut self.f);
-					}
-					0x34 => {
-						self.h = swap_r8(self.h, &mut self.f);
-					}
-					0x35 => {
-						self.l = swap_r8(self.l, &mut self.f);
-					}
-					0x36 => {
-						self.address_space.write(
-							self.get_hl(),
-							swap_r8(self.address_space.read(self.get_hl()), &mut self.f),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0x37 => {
-						self.a = swap_r8(self.a, &mut self.f);
-					}
+					opcode @ 0x30..=0x37 => self.swap(opcode & 7),
 					/* srl r8 */
-					0x38 => {
-						self.b = srl_r8(self.b, &mut self.f);
-					}
-					0x39 => {
-						self.c = srl_r8(self.c, &mut self.f);
-					}
-					0x3A => {
-						self.d = srl_r8(self.d, &mut self.f);
-					}
-					0x3B => {
-						self.e = srl_r8(self.e, &mut self.f);
-					}
-					0x3C => {
-						self.h = srl_r8(self.h, &mut self.f);
-					}
-					0x3D => {
-						self.l = srl_r8(self.l, &mut self.f);
-					}
-					0x3E => {
-						self.address_space.write(
-							self.get_hl(),
-							srl_r8(self.address_space.read(self.get_hl()), &mut self.f),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0x3F => {
-						self.a = srl_r8(self.a, &mut self.f);
-					}
+					opcode @ 0x38..=0x3F => self.srl(opcode & 7),
 					/* bit r8 */
-					0x40 => {
-						bit_r8(self.b, 0, &mut self.f);
-					}
-					0x41 => {
-						bit_r8(self.c, 0, &mut self.f);
-					}
-					0x42 => {
-						bit_r8(self.d, 0, &mut self.f);
-					}
-					0x43 => {
-						bit_r8(self.e, 0, &mut self.f);
-					}
-					0x44 => {
-						bit_r8(self.h, 0, &mut self.f);
-					}
-					0x45 => {
-						bit_r8(self.l, 0, &mut self.f);
-					}
-					0x46 => {
-						bit_r8(self.address_space.read(self.get_hl()), 0, &mut self.f);
-						self.cycles_elapsed += 1;
-					}
-					0x47 => {
-						bit_r8(self.a, 0, &mut self.f);
-					}
-					0x48 => {
-						bit_r8(self.b, 1, &mut self.f);
-					}
-					0x49 => {
-						bit_r8(self.c, 1, &mut self.f);
-					}
-					0x4A => {
-						bit_r8(self.d, 1, &mut self.f);
-					}
-					0x4B => {
-						bit_r8(self.e, 1, &mut self.f);
-					}
-					0x4C => {
-						bit_r8(self.h, 1, &mut self.f);
-					}
-					0x4D => {
-						bit_r8(self.l, 1, &mut self.f);
-					}
-					0x4E => {
-						bit_r8(self.address_space.read(self.get_hl()), 1, &mut self.f);
-						self.cycles_elapsed += 1;
-					}
-					0x4F => {
-						bit_r8(self.a, 1, &mut self.f);
-					}
-					0x50 => {
-						bit_r8(self.b, 2, &mut self.f);
-					}
-					0x51 => {
-						bit_r8(self.c, 2, &mut self.f);
-					}
-					0x52 => {
-						bit_r8(self.d, 2, &mut self.f);
-					}
-					0x53 => {
-						bit_r8(self.e, 2, &mut self.f);
-					}
-					0x54 => {
-						bit_r8(self.h, 2, &mut self.f);
-					}
-					0x55 => {
-						bit_r8(self.l, 2, &mut self.f);
-					}
-					0x56 => {
-						bit_r8(self.address_space.read(self.get_hl()), 2, &mut self.f);
-						self.cycles_elapsed += 1;
-					}
-					0x57 => {
-						bit_r8(self.a, 2, &mut self.f);
-					}
-					0x58 => {
-						bit_r8(self.b, 3, &mut self.f);
-					}
-					0x59 => {
-						bit_r8(self.c, 3, &mut self.f);
-					}
-					0x5A => {
-						bit_r8(self.d, 3, &mut self.f);
-					}
-					0x5B => {
-						bit_r8(self.e, 3, &mut self.f);
-					}
-					0x5C => {
-						bit_r8(self.h, 3, &mut self.f);
-					}
-					0x5D => {
-						bit_r8(self.l, 3, &mut self.f);
-					}
-					0x5E => {
-						bit_r8(self.address_space.read(self.get_hl()), 3, &mut self.f);
-						self.cycles_elapsed += 1;
-					}
-					0x5F => {
-						bit_r8(self.a, 3, &mut self.f);
-					}
-					0x60 => {
-						bit_r8(self.b, 4, &mut self.f);
-					}
-					0x61 => {
-						bit_r8(self.c, 4, &mut self.f);
-					}
-					0x62 => {
-						bit_r8(self.d, 4, &mut self.f);
-					}
-					0x63 => {
-						bit_r8(self.e, 4, &mut self.f);
-					}
-					0x64 => {
-						bit_r8(self.h, 4, &mut self.f);
-					}
-					0x65 => {
-						bit_r8(self.l, 4, &mut self.f);
-					}
-					0x66 => {
-						bit_r8(self.address_space.read(self.get_hl()), 4, &mut self.f);
-						self.cycles_elapsed += 1;
-					}
-					0x67 => {
-						bit_r8(self.a, 4, &mut self.f);
-					}
-					0x68 => {
-						bit_r8(self.b, 5, &mut self.f);
-					}
-					0x69 => {
-						bit_r8(self.c, 5, &mut self.f);
-					}
-					0x6A => {
-						bit_r8(self.d, 5, &mut self.f);
-					}
-					0x6B => {
-						bit_r8(self.e, 5, &mut self.f);
-					}
-					0x6C => {
-						bit_r8(self.h, 5, &mut self.f);
-					}
-					0x6D => {
-						bit_r8(self.l, 5, &mut self.f);
-					}
-					0x6E => {
-						bit_r8(self.address_space.read(self.get_hl()), 5, &mut self.f);
-						self.cycles_elapsed += 1;
-					}
-					0x6F => {
-						bit_r8(self.a, 5, &mut self.f);
-					}
-					0x70 => {
-						bit_r8(self.b, 6, &mut self.f);
-					}
-					0x71 => {
-						bit_r8(self.c, 6, &mut self.f);
-					}
-					0x72 => {
-						bit_r8(self.d, 6, &mut self.f);
-					}
-					0x73 => {
-						bit_r8(self.e, 6, &mut self.f);
-					}
-					0x74 => {
-						bit_r8(self.h, 6, &mut self.f);
-					}
-					0x75 => {
-						bit_r8(self.l, 6, &mut self.f);
-					}
-					0x76 => {
-						bit_r8(self.address_space.read(self.get_hl()), 6, &mut self.f);
-						self.cycles_elapsed += 1;
-					}
-					0x77 => {
-						bit_r8(self.a, 6, &mut self.f);
-					}
-					0x78 => {
-						bit_r8(self.b, 7, &mut self.f);
-					}
-					0x79 => {
-						bit_r8(self.c, 7, &mut self.f);
-					}
-					0x7A => {
-						bit_r8(self.d, 7, &mut self.f);
-					}
-					0x7B => {
-						bit_r8(self.e, 7, &mut self.f);
-					}
-					0x7C => {
-						bit_r8(self.h, 7, &mut self.f);
-					}
-					0x7D => {
-						bit_r8(self.l, 7, &mut self.f);
-					}
-					0x7E => {
-						bit_r8(self.address_space.read(self.get_hl()), 7, &mut self.f);
-						self.cycles_elapsed += 1;
-					}
-					0x7F => {
-						bit_r8(self.a, 7, &mut self.f);
-					}
-					/* res r8 */
-					0x80 => {
-						self.b = res_r8(self.b, 0);
-					}
-					0x81 => {
-						self.c = res_r8(self.c, 0);
-					}
-					0x82 => {
-						self.d = res_r8(self.d, 0);
-					}
-					0x83 => {
-						self.e = res_r8(self.e, 0);
-					}
-					0x84 => {
-						self.h = res_r8(self.h, 0);
-					}
-					0x85 => {
-						self.l = res_r8(self.l, 0);
-					}
-					0x86 => {
-						self.address_space.write(
-							self.get_hl(),
-							res_r8(self.address_space.read(self.get_hl()), 0),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0x87 => {
-						self.a = res_r8(self.a, 0);
-					}
-					0x88 => {
-						self.b = res_r8(self.b, 1);
-					}
-					0x89 => {
-						self.c = res_r8(self.c, 1);
-					}
-					0x8A => {
-						self.d = res_r8(self.d, 1);
-					}
-					0x8B => {
-						self.e = res_r8(self.e, 1);
-					}
-					0x8C => {
-						self.h = res_r8(self.h, 1);
-					}
-					0x8D => {
-						self.l = res_r8(self.l, 1);
-					}
-					0x8E => {
-						self.address_space.write(
-							self.get_hl(),
-							res_r8(self.address_space.read(self.get_hl()), 1),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0x8F => {
-						self.a = res_r8(self.a, 1);
-					}
-					0x90 => {
-						self.b = res_r8(self.b, 2);
-					}
-					0x91 => {
-						self.c = res_r8(self.c, 2);
-					}
-					0x92 => {
-						self.d = res_r8(self.d, 2);
-					}
-					0x93 => {
-						self.e = res_r8(self.e, 2);
-					}
-					0x94 => {
-						self.h = res_r8(self.h, 2);
-					}
-					0x95 => {
-						self.l = res_r8(self.l, 2);
-					}
-					0x96 => {
-						self.address_space.write(
-							self.get_hl(),
-							res_r8(self.address_space.read(self.get_hl()), 2),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0x97 => {
-						self.a = res_r8(self.a, 2);
-					}
-					0x98 => {
-						self.b = res_r8(self.b, 3);
-					}
-					0x99 => {
-						self.c = res_r8(self.c, 3);
-					}
-					0x9A => {
-						self.d = res_r8(self.d, 3);
-					}
-					0x9B => {
-						self.e = res_r8(self.e, 3);
-					}
-					0x9C => {
-						self.h = res_r8(self.h, 3);
-					}
-					0x9D => {
-						self.l = res_r8(self.l, 3);
-					}
-					0x9E => {
-						self.address_space.write(
-							self.get_hl(),
-							res_r8(self.address_space.read(self.get_hl()), 3),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0x9F => {
-						self.a = res_r8(self.a, 3);
-					}
-					0xA0 => {
-						self.b = res_r8(self.b, 4);
-					}
-					0xA1 => {
-						self.c = res_r8(self.c, 4);
-					}
-					0xA2 => {
-						self.d = res_r8(self.d, 4);
-					}
-					0xA3 => {
-						self.e = res_r8(self.e, 4);
-					}
-					0xA4 => {
-						self.h = res_r8(self.h, 4);
-					}
-					0xA5 => {
-						self.l = res_r8(self.l, 4);
-					}
-					0xA6 => {
-						self.address_space.write(
-							self.get_hl(),
-							res_r8(self.address_space.read(self.get_hl()), 4),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0xA7 => {
-						self.a = res_r8(self.a, 4);
-					}
-					0xA8 => {
-						self.b = res_r8(self.b, 5);
-					}
-					0xA9 => {
-						self.c = res_r8(self.c, 5);
-					}
-					0xAA => {
-						self.d = res_r8(self.d, 5);
-					}
-					0xAB => {
-						self.e = res_r8(self.e, 5);
-					}
-					0xAC => {
-						self.h = res_r8(self.h, 5);
-					}
-					0xAD => {
-						self.l = res_r8(self.l, 5);
-					}
-					0xAE => {
-						self.address_space.write(
-							self.get_hl(),
-							res_r8(self.address_space.read(self.get_hl()), 5),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0xAF => {
-						self.a = res_r8(self.a, 5);
-					}
-					0xB0 => {
-						self.b = res_r8(self.b, 6);
-					}
-					0xB1 => {
-						self.c = res_r8(self.c, 6);
-					}
-					0xB2 => {
-						self.d = res_r8(self.d, 6);
-					}
-					0xB3 => {
-						self.e = res_r8(self.e, 6);
-					}
-					0xB4 => {
-						self.h = res_r8(self.h, 6);
-					}
-					0xB5 => {
-						self.l = res_r8(self.l, 6);
-					}
-					0xB6 => {
-						self.address_space.write(
-							self.get_hl(),
-							res_r8(self.address_space.read(self.get_hl()), 6),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0xB7 => {
-						self.a = res_r8(self.a, 6);
-					}
-					0xB8 => {
-						self.b = res_r8(self.b, 7);
-					}
-					0xB9 => {
-						self.c = res_r8(self.c, 7);
-					}
-					0xBA => {
-						self.d = res_r8(self.d, 7);
-					}
-					0xBB => {
-						self.e = res_r8(self.e, 7);
-					}
-					0xBC => {
-						self.h = res_r8(self.h, 7);
-					}
-					0xBD => {
-						self.l = res_r8(self.l, 7);
-					}
-					0xBE => {
-						self.address_space.write(
-							self.get_hl(),
-							res_r8(self.address_space.read(self.get_hl()), 7),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0xBF => {
-						self.a = res_r8(self.a, 7);
-					}
-					/* set r8 */
-					0xC0 => {
-						self.b = set_r8(self.b, 0);
-					}
-					0xC1 => {
-						self.c = set_r8(self.c, 0);
-					}
-					0xC2 => {
-						self.d = set_r8(self.d, 0);
-					}
-					0xC3 => {
-						self.e = set_r8(self.e, 0);
-					}
-					0xC4 => {
-						self.h = set_r8(self.h, 0);
-					}
-					0xC5 => {
-						self.l = set_r8(self.l, 0);
-					}
-					0xC6 => {
-						self.address_space.write(
-							self.get_hl(),
-							set_r8(self.address_space.read(self.get_hl()), 0),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0xC7 => {
-						self.a = set_r8(self.a, 0);
-					}
-					0xC8 => {
-						self.b = set_r8(self.b, 1);
-					}
-					0xC9 => {
-						self.c = set_r8(self.c, 1);
-					}
-					0xCA => {
-						self.d = set_r8(self.d, 1);
-					}
-					0xCB => {
-						self.e = set_r8(self.e, 1);
-					}
-					0xCC => {
-						self.h = set_r8(self.h, 1);
-					}
-					0xCD => {
-						self.l = set_r8(self.l, 1);
-					}
-					0xCE => {
-						self.address_space.write(
-							self.get_hl(),
-							set_r8(self.address_space.read(self.get_hl()), 1),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0xCF => {
-						self.a = set_r8(self.a, 1);
-					}
-					0xD0 => {
-						self.b = set_r8(self.b, 2);
-					}
-					0xD1 => {
-						self.c = set_r8(self.c, 2);
-					}
-					0xD2 => {
-						self.d = set_r8(self.d, 2);
-					}
-					0xD3 => {
-						self.e = set_r8(self.e, 2);
-					}
-					0xD4 => {
-						self.h = set_r8(self.h, 2);
-					}
-					0xD5 => {
-						self.l = set_r8(self.l, 2);
-					}
-					0xD6 => {
-						self.address_space.write(
-							self.get_hl(),
-							set_r8(self.address_space.read(self.get_hl()), 2),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0xD7 => {
-						self.a = set_r8(self.a, 2);
-					}
-					0xD8 => {
-						self.b = set_r8(self.b, 3);
-					}
-					0xD9 => {
-						self.c = set_r8(self.c, 3);
-					}
-					0xDA => {
-						self.d = set_r8(self.d, 3);
-					}
-					0xDB => {
-						self.e = set_r8(self.e, 3);
-					}
-					0xDC => {
-						self.h = set_r8(self.h, 3);
-					}
-					0xDD => {
-						self.l = set_r8(self.l, 3);
-					}
-					0xDE => {
-						self.address_space.write(
-							self.get_hl(),
-							set_r8(self.address_space.read(self.get_hl()), 3),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0xDF => {
-						self.a = set_r8(self.a, 3);
-					}
-					0xE0 => {
-						self.b = set_r8(self.b, 4);
-					}
-					0xE1 => {
-						self.c = set_r8(self.c, 4);
-					}
-					0xE2 => {
-						self.d = set_r8(self.d, 4);
-					}
-					0xE3 => {
-						self.e = set_r8(self.e, 4);
-					}
-					0xE4 => {
-						self.h = set_r8(self.h, 4);
-					}
-					0xE5 => {
-						self.l = set_r8(self.l, 4);
-					}
-					0xE6 => {
-						self.address_space.write(
-							self.get_hl(),
-							set_r8(self.address_space.read(self.get_hl()), 4),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0xE7 => {
-						self.a = set_r8(self.a, 4);
-					}
-					0xE8 => {
-						self.b = set_r8(self.b, 5);
-					}
-					0xE9 => {
-						self.c = set_r8(self.c, 5);
-					}
-					0xEA => {
-						self.d = set_r8(self.d, 5);
-					}
-					0xEB => {
-						self.e = set_r8(self.e, 5);
-					}
-					0xEC => {
-						self.h = set_r8(self.h, 5);
-					}
-					0xED => {
-						self.l = set_r8(self.l, 5);
-					}
-					0xEE => {
-						self.address_space.write(
-							self.get_hl(),
-							set_r8(self.address_space.read(self.get_hl()), 5),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0xEF => {
-						self.a = set_r8(self.a, 5);
-					}
-					0xF0 => {
-						self.b = set_r8(self.b, 6);
-					}
-					0xF1 => {
-						self.c = set_r8(self.c, 6);
-					}
-					0xF2 => {
-						self.d = set_r8(self.d, 6);
-					}
-					0xF3 => {
-						self.e = set_r8(self.e, 6);
-					}
-					0xF4 => {
-						self.h = set_r8(self.h, 6);
-					}
-					0xF5 => {
-						self.l = set_r8(self.l, 6);
-					}
-					0xF6 => {
-						self.address_space.write(
-							self.get_hl(),
-							set_r8(self.address_space.read(self.get_hl()), 6),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0xF7 => {
-						self.a = set_r8(self.a, 6);
-					}
-					0xF8 => {
-						self.b = set_r8(self.b, 7);
-					}
-					0xF9 => {
-						self.c = set_r8(self.c, 7);
-					}
-					0xFA => {
-						self.d = set_r8(self.d, 7);
-					}
-					0xFB => {
-						self.e = set_r8(self.e, 7);
-					}
-					0xFC => {
-						self.h = set_r8(self.h, 7);
-					}
-					0xFD => {
-						self.l = set_r8(self.l, 7);
-					}
-					0xFE => {
-						self.address_space.write(
-							self.get_hl(),
-							set_r8(self.address_space.read(self.get_hl()), 7),
-						);
-						self.cycles_elapsed += 1;
-					}
-					0xFF => {
-						self.a = set_r8(self.a, 7);
+					opcode @ 0x40..=0x7F => {
+						let value = self.get_r8_by_id(opcode & 7)
+							& 1u8.overflowing_shl((opcode >> 3).into()).0;
+						self.f.set_z(value != 0);
+					}
+					/* res n, r8 */
+					opcode @ 0x80..=0xBF => {
+						let mut value = self.get_r8_by_id(opcode & 7);
+						value &= !1u8.overflowing_shl((opcode >> 3).into()).0; // *evil grin*
+						self.set_r8_by_id(opcode & 7, value);
+					}
+					/* set n, r8 */
+					opcode @ 0xC0..=0xFF => {
+						let mut value = self.get_r8_by_id(opcode & 7);
+						value |= 1u8.overflowing_shl((opcode >> 3).into()).0; // *evil grin*
+						self.set_r8_by_id(opcode & 7, value);
 					}
 				}
 			}
 			/* call z */
 			0xCC => {
-				call_cc(self.f.get_z(), self);
+				self.call_cc(self.f.get_z());
 			}
 			/* call */
 			0xCD => {
-				call_cc(true, self);
+				self.call_cc(true);
 			}
 			/* adc a, u8 */
-			0xCE => adc_a_r8(self.read_pc(), self),
-			/* rst 8 */
-			0xCF => {
-				push(self.pc, self);
-				self.pc = 0x0008;
-				self.cycles_elapsed += 1;
+			0xCE => {
+				let value = self.read_pc();
+				self.add(value, self.f.get_c());
 			}
 			/* ret nc */
 			0xD0 => {
-				ret_cc(!self.f.get_c(), self);
+				self.ret_cc(!self.f.get_c());
 			}
 			/* pop de */
 			0xD1 => {
-				let value = pop(self);
+				let value = self.pop();
 				self.set_de(value);
 			}
 			/* jp nc */
 			0xD2 => {
-				jp_cc(!self.f.get_c(), self);
+				self.jp_cc(!self.f.get_c());
 			}
 			/* invalid opcode */
 			/* call nc */
 			0xD4 => {
-				call_cc(!self.f.get_c(), self);
+				self.call_cc(!self.f.get_c());
 			}
 			/* push de */
 			0xD5 => {
-				push(self.get_de(), self);
+				self.push(self.get_de());
 			}
 			/* sub a, u8 */
-			0xD6 => sub_a_r8(self.read_pc(), self),
-			/* rst 10 */
-			0xD7 => {
-				push(self.pc, self);
-				self.pc = 0x0010;
-				self.cycles_elapsed += 1;
+			0xD6 => {
+				let value = self.read_pc();
+				self.sub(value, false);
 			}
 			/* ret c */
 			0xD8 => {
-				ret_cc(self.f.get_c(), self);
+				self.ret_cc(self.f.get_c());
 			}
 			/* reti */
 			0xD9 => {
-				ret_cc(true, self);
-				self.ei = true;
+				self.ret_cc(true);
+				self.ime = true;
 			}
 			/* jp c */
 			0xDA => {
-				jp_cc(self.f.get_c(), self);
+				self.jp_cc(self.f.get_c());
 			}
 			/* invalid opcode */
 			/* call c */
 			0xDC => {
-				call_cc(self.f.get_c(), self);
+				self.call_cc(self.f.get_c());
 			}
 			/* invalid opcode */
 			/* sbc a, u8 */
-			0xDE => sbc_a_r8(self.read_pc(), self),
-			/* rst 18 */
-			0xDF => {
-				push(self.pc, self);
-				self.pc = 0x0018;
-				self.cycles_elapsed += 1;
+			0xDE => {
+				let value = self.read_pc();
+				self.sub(value, self.f.get_c());
 			}
 			/* ldh [u16], a */
 			0xE0 => {
@@ -2088,7 +847,7 @@ impl State {
 			}
 			/* pop hl */
 			0xE1 => {
-				let value = pop(self);
+				let value = self.pop();
 				self.set_hl(value);
 			}
 			/* ldh [c], a */
@@ -2100,28 +859,22 @@ impl State {
 			/* invalid opcode */
 			/* push hl */
 			0xE5 => {
-				push(self.get_hl(), self);
+				self.push(self.get_hl());
 			}
 			/* and a, u8 */
 			0xE6 => {
-				and_a_r8(self.read_pc(), self);
-			}
-			/* rst 20 */
-			0xE7 => {
-				push(self.pc, self);
-				self.pc = 0x0020;
-				self.cycles_elapsed += 1;
+				let value = self.read_pc();
+				self.and(value);
 			}
 			/* add sp, u8 */
 			0xE8 => {
 				let value = self.read_pc() as u16;
 				let old_sp = self.sp;
-				self.sp = u16::wrapping_add(self.sp, value);
+				self.sp = self.sp.wrapping_add(value);
+				self.f.set_h((old_sp & 0xFFF) + (value & 0xFFF) > 0xFFF);
+				self.f.set_c(old_sp > self.sp);
 				self.f.set_z(false);
 				self.f.set_n(false);
-				self.f
-					.set_h((old_sp & 0xFFF + value & 0xFFF > 0xFFF) == true);
-				self.f.set_c(old_sp > self.sp);
 				self.cycles_elapsed += 2;
 			}
 			/* jp hl */
@@ -2131,7 +884,7 @@ impl State {
 			}
 			/* ld [u16], a */
 			0xEA => {
-				let address = self.read_pc() as u16 | (self.read_pc() as u16) << 8;
+				let address = u16::from_le_bytes([self.read_pc(), self.read_pc()]);
 				self.write(address, self.a);
 				self.cycles_elapsed += 1;
 			}
@@ -2140,13 +893,8 @@ impl State {
 			/* invalid opcode */
 			/* xor a, u8 */
 			0xEE => {
-				xor_a_r8(self.read_pc(), self);
-			}
-			/* rst 28 */
-			0xEF => {
-				push(self.pc, self);
-				self.pc = 0x0028;
-				self.cycles_elapsed += 1;
+				let value = self.read_pc();
+				self.xor(value);
 			}
 			/* ldh a, [u16] */
 			0xF0 => {
@@ -2156,7 +904,7 @@ impl State {
 			}
 			/* pop af */
 			0xF1 => {
-				let value = pop(self);
+				let value = self.pop();
 				self.set_af(value);
 			}
 			/* ldh a, [c] */
@@ -2166,33 +914,27 @@ impl State {
 			}
 			/* di */
 			0xF3 => {
-				self.ei = false;
+				self.ime = false;
 			}
 			/* invalid opcode */
 			/* push af */
 			0xF5 => {
-				push(self.get_af(), self);
+				self.push(self.get_af());
 			}
 			/* or a, u8 */
 			0xF6 => {
-				or_a_r8(self.read_pc(), self);
-			}
-			/* rst 30 */
-			0xF7 => {
-				push(self.pc, self);
-				self.pc = 0x0030;
-				self.cycles_elapsed += 1;
+				let value = self.read_pc();
+				self.or(value);
 			}
 			/* ld hl, sp + u8 */
 			0xF8 => {
 				let value = self.read_pc() as u16;
 				let old_sp = self.sp;
-				self.set_hl(u16::wrapping_add(self.sp, value));
+				self.set_hl(self.sp.wrapping_add(value));
+				self.f.set_h((old_sp & 0xFFF) + (value & 0xFFF) > 0xFFF);
+				self.f.set_c(old_sp > self.get_hl());
 				self.f.set_z(false);
 				self.f.set_n(false);
-				self.f
-					.set_h(((old_sp & 0xFFF) + (value & 0xFFF) > 0xFFF) == true);
-				self.f.set_c(old_sp > self.get_hl());
 				self.cycles_elapsed += 1;
 			}
 			/* jp hl */
@@ -2201,55 +943,47 @@ impl State {
 			}
 			/* ld a, [u16] */
 			0xFA => {
-				let address = (self.read_pc() as u16) | (self.read_pc() as u16) << 8;
+				let address = u16::from_le_bytes([self.read_pc(), self.read_pc()]);
 				self.a = self.read(address);
 				self.cycles_elapsed += 1;
 			}
 			/* ei */
 			0xFB => {
-				self.ei = true;
+				self.ime = true;
 			}
 			/* invalid opcode */
 			/* invalid opcode */
 			/* cp a, u8 */
 			0xFE => {
-				cp_a_r8(self.read_pc(), self);
+				let value = self.read_pc();
+				self.cp(value);
 			}
-			/* rst 38 */
-			0xFF => {
-				push(self.pc, self);
-				self.pc = 0x0038;
-				self.cycles_elapsed += 1;
+			0xD3 | 0xDB | 0xDD | 0xE3..=0xE4 | 0xEB..=0xED | 0xF4 | 0xFC..=0xFD => {
+				panic!("Invalid opcode")
 			}
-			_ => panic!("Invalid opcode"),
 		}
 
 		TickResult::Ok
 	}
+}
 
-	pub fn new(address_space: AddressSpace) -> State {
-		State {
-			a: 0,
-			f: Flags { value: 0 },
-			b: 0,
-			c: 0,
-			d: 0,
-			e: 0,
-			h: 0,
-			l: 0,
-			pc: 0,
-			// SP defaults to the top of WRAM to minimize conflicts.
-			// Users should set SP to its proper address for all tests.
-			sp: 0xE000,
-			ei: true,
-			cycles_elapsed: 0,
+#[derive(Clone, Copy, Default)]
+struct CarryRetainer(u8, bool);
 
-			address_space,
-		}
+impl CarryRetainer {
+	fn new() -> Self {
+		Default::default()
 	}
 }
 
-impl fmt::Display for State {
+impl BitOrAssign<(u8, bool)> for CarryRetainer {
+	fn bitor_assign(&mut self, rhs: (u8, bool)) {
+		self.0 = rhs.0;
+		self.1 |= rhs.1;
+	}
+}
+
+impl<S: AddressSpace> fmt::Display for State<S> {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		write!(
 			f,
@@ -2273,8 +1007,625 @@ Elapsed cycles: {}",
 			self.f,
 			self.pc,
 			self.sp,
-			if self.ei { "en" } else { "dis" },
+			if self.ime { "en" } else { "dis" },
 			self.cycles_elapsed
 		)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use std::{cell::RefCell, fmt::Debug};
+
+	use super::*;
+
+	static REG_NAMES: [&str; 8] = ["b", "c", "d", "e", "h", "l", "[hl]", "a"];
+	static OP_NAMES: [&str; 8] = ["add", "adc", "sub", "sbc", "and", "xor", "or", "cp"];
+
+	#[derive(Debug, Clone, Copy)]
+	struct DummyAddrSpace;
+	impl AddressSpace for DummyAddrSpace {
+		fn read(&self, _address: u16) -> u8 {
+			0
+		}
+		fn write(&mut self, _address: u16, _value: u8) {
+			/* Nothing. */
+		}
+	}
+
+	#[derive(Debug, Clone, Copy)]
+	struct TinyAddrSpace<'a, const N: usize>(&'a RefCell<[u8; N]>);
+	impl<const N: usize> AddressSpace for TinyAddrSpace<'_, N> {
+		fn read(&self, address: u16) -> u8 {
+			self.0.borrow()[address as usize % N]
+		}
+		fn write(&mut self, address: u16, value: u8) {
+			self.0.borrow_mut()[address as usize % N] = value;
+		}
+	}
+
+	fn assert_flags<S: AddressSpace, M: Debug>(
+		cpu: &State<S>,
+		z: bool,
+		n: bool,
+		h: bool,
+		c: bool,
+		msg: M,
+	) {
+		let assert_flag = |flag, expected, ch| {
+			assert!(
+				flag == expected,
+				"{} is {} for {:?}, it shouldn't",
+				ch,
+				if flag { "set" } else { "reset" },
+				msg
+			)
+		};
+		assert_flag(cpu.f.get_z(), z, 'Z');
+		assert_flag(cpu.f.get_n(), n, 'N');
+		assert_flag(cpu.f.get_h(), h, 'H');
+		assert_flag(cpu.f.get_c(), c, 'C');
+	}
+
+	#[test]
+	fn add_hl_16() {
+		let mut cpu = State::new(DummyAddrSpace);
+		cpu.f.set_z(false);
+
+		for hl in 0..=u16::MAX {
+			// Let's assume that the function is symmetrical, otherwise the test takes even more forever.
+			for operand in hl..=u16::MAX {
+				cpu.cycles_elapsed = 0;
+				let params = (hl, operand);
+				cpu.set_hl(hl);
+
+				cpu.add_hl_r16(operand);
+
+				let h = (hl & 0xFFF) + (operand & 0xFFF) > 0xFFF;
+				let c = hl as u32 + operand as u32 > 0xFFFF;
+				assert_flags(&cpu, false, false, h, c, &params);
+				assert_eq!(cpu.get_hl(), hl.wrapping_add(operand), "{:?}", params);
+				assert_eq!(cpu.cycles_elapsed, 1);
+			}
+		}
+	}
+
+	#[test]
+	fn add() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for a in 0..=u8::MAX {
+			for operand in 0..=u8::MAX {
+				for carry_in in [false, true] {
+					cpu.cycles_elapsed = 0;
+					let params = (a, operand, carry_in);
+					cpu.a = a;
+					cpu.f.set_n(true);
+
+					cpu.add(operand, carry_in);
+
+					let result = a.wrapping_add(operand).wrapping_add(carry_in.into());
+					let z = result == 0;
+					let h = (a & 0xF) + (operand & 0xF) + carry_in as u8 > 0xF;
+					let c = a as u16 + operand as u16 + carry_in as u16 > 0xFF;
+					assert_flags(&cpu, z, false, h, c, &params);
+					assert_eq!(cpu.a, result, "{:?}", params);
+					assert_eq!(cpu.cycles_elapsed, 0);
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn sub() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for a in 0..=u8::MAX {
+			for operand in 0..=u8::MAX {
+				for carry_in in [false, true] {
+					cpu.cycles_elapsed = 0;
+					let params = (a, operand, carry_in);
+					cpu.a = a;
+					cpu.f.set_n(false);
+
+					cpu.sub(operand, carry_in);
+
+					let result = a.wrapping_sub(operand).wrapping_sub(carry_in.into());
+					let z = result == 0;
+					let h = (a & 0xF) as i8 - (operand & 0xF) as i8 - (carry_in as i8) < 0;
+					let c = (a as i32 - operand as i32 - carry_in as i32) < 0;
+					assert_flags(&cpu, z, true, h, c, &params);
+					assert_eq!(cpu.a, result, "{:?}", params);
+					assert_eq!(cpu.cycles_elapsed, 0);
+				}
+			}
+		}
+	}
+
+	// Bit ops are trivial enough to skip testing them
+
+	#[test]
+	fn cp() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for a in 0..=u8::MAX {
+			for operand in 0..=u8::MAX {
+				cpu.cycles_elapsed = 0;
+				let params = (a, operand);
+				cpu.a = a;
+				cpu.f.set_n(false);
+
+				cpu.cp(operand);
+
+				let z = a.wrapping_sub(operand) == 0;
+				let h = (a & 0xF) as i8 - ((operand & 0xF) as i8) < 0;
+				let c = (a as i32 - operand as i32) < 0;
+				assert_flags(&cpu, z, true, h, c, &params);
+				assert_eq!(cpu.a, a, "{:?}", params);
+				assert_eq!(cpu.cycles_elapsed, 0);
+			}
+		}
+	}
+
+	#[test]
+	fn rlc() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for b in 0..=u8::MAX {
+			cpu.cycles_elapsed = 0;
+			let params = b;
+			cpu.b = b;
+
+			cpu.rlc(0);
+
+			let result = b.rotate_left(1);
+			let z = result == 0;
+			let c = b & 0x80 != 0;
+			assert_flags(&cpu, z, false, false, c, &params);
+			assert_eq!(cpu.b, result, "{:?}", params);
+			assert_eq!(cpu.cycles_elapsed, 0);
+		}
+	}
+
+	#[test]
+	fn rl() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for c in 0..=u8::MAX {
+			for carry in [false, true] {
+				cpu.cycles_elapsed = 0;
+				let params = (c, carry);
+				cpu.c = c;
+				cpu.f.set_c(carry);
+
+				cpu.rl(1);
+
+				let result = c.wrapping_shl(1) | carry as u8;
+				let z = result == 0;
+				let c = c & 0x80 != 0;
+				assert_flags(&cpu, z, false, false, c, &params);
+				assert_eq!(cpu.c, result, "{:?}", params);
+				assert_eq!(cpu.cycles_elapsed, 0);
+			}
+		}
+	}
+
+	#[test]
+	fn rrc() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for d in 0..=u8::MAX {
+			cpu.cycles_elapsed = 0;
+			let params = d;
+			cpu.d = d;
+
+			cpu.rrc(2);
+
+			let result = d.rotate_right(1);
+			let z = result == 0;
+			let c = d & 0x01 != 0;
+			assert_flags(&cpu, z, false, false, c, &params);
+			assert_eq!(cpu.d, result, "{:?}", params);
+			assert_eq!(cpu.cycles_elapsed, 0);
+		}
+	}
+
+	#[test]
+	fn rr() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for e in 0..=u8::MAX {
+			for carry in [false, true] {
+				cpu.cycles_elapsed = 0;
+				let params = (e, carry);
+				cpu.e = e;
+				cpu.f.set_c(carry);
+
+				cpu.rr(3);
+
+				let result = e.wrapping_shr(1) | (carry as u8) << 7;
+				let z = result == 0;
+				let c = e & 0x01 != 0;
+				assert_flags(&cpu, z, false, false, c, &params);
+				assert_eq!(cpu.e, result, "{:?}", params);
+				assert_eq!(cpu.cycles_elapsed, 0);
+			}
+		}
+	}
+
+	#[test]
+	fn sla() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for h in 0..=u8::MAX {
+			cpu.cycles_elapsed = 0;
+			let params = h;
+			cpu.h = h;
+
+			cpu.sla(4);
+
+			let result = h.wrapping_shl(1);
+			let z = result == 0;
+			let c = h & 0x80 != 0;
+			assert_flags(&cpu, z, false, false, c, &params);
+			assert_eq!(cpu.h, result, "{:?}", params);
+			assert_eq!(cpu.cycles_elapsed, 0);
+		}
+	}
+
+	#[test]
+	fn sra() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for l in 0..=u8::MAX {
+			cpu.cycles_elapsed = 0;
+			let params = l;
+			cpu.l = l;
+
+			cpu.sra(5);
+
+			let result = l.wrapping_shr(1) | l & 0x80;
+			let z = result == 0;
+			let c = l & 0x01 != 0;
+			assert_flags(&cpu, z, false, false, c, &params);
+			assert_eq!(cpu.l, result, "{:?}", params);
+			assert_eq!(cpu.cycles_elapsed, 0);
+		}
+	}
+
+	#[test]
+	fn swap() {
+		let mem = RefCell::new([0]);
+		let mut cpu = State::new(TinyAddrSpace(&mem));
+
+		for hl_ in 0..=u8::MAX {
+			cpu.cycles_elapsed = 0;
+			let params = hl_;
+			mem.borrow_mut()[0] = hl_;
+
+			cpu.swap(6);
+
+			let result = hl_.rotate_right(4);
+			let z = result == 0;
+			assert_flags(&cpu, z, false, false, false, &params);
+			assert_eq!(mem.borrow()[0], result, "{:?}", params);
+			assert_eq!(cpu.cycles_elapsed, 2); // Accesses to and from [hl]
+		}
+	}
+
+	#[test]
+	fn srl() {
+		let mut cpu = State::new(DummyAddrSpace);
+
+		for a in 0..=u8::MAX {
+			cpu.cycles_elapsed = 0;
+			let params = a;
+			cpu.a = a;
+
+			cpu.srl(7);
+
+			let result = a.wrapping_shr(1);
+			let z = result == 0;
+			let c = a & 0x01 != 0;
+			assert_flags(&cpu, z, false, false, c, &params);
+			assert_eq!(cpu.a, result, "{:?}", params);
+			assert_eq!(cpu.cycles_elapsed, 0);
+		}
+	}
+
+	#[test]
+	fn ld_r8_r8() {
+		let mem = RefCell::new([0; 2]);
+		let mut cpu = State::new(TinyAddrSpace(&mem));
+
+		for dest in 0..=7 {
+			for src in 0..=7 {
+				let mut regs = [b'G', b'A', b'M', b'E', b' ', b'B', b'O', b'Y']; // 8 unique values :)
+				for i in 0..=7 {
+					cpu.set_r8_by_id(i, regs[i as usize]);
+				}
+				assert_eq!(cpu.get_hl() % 2, 0); // Otherwise [hl] doesn't point to the first cell
+
+				cpu.pc = 1;
+				mem.borrow_mut()[1] = 0x40 | dest << 3 | src; // Write the instruction
+				cpu.cycles_elapsed = 0;
+
+				let ret = cpu.tick();
+
+				regs[dest as usize] = regs[src as usize];
+				for i in 0..=7 {
+					assert_eq!(
+						if i == 6 {
+							mem.borrow_mut()[0]
+						} else {
+							cpu.get_r8_by_id(i)
+						},
+						regs[i as usize],
+						"from {} to {}",
+						src,
+						dest
+					);
+				}
+
+				match (dest, src) {
+					(0, 0) => assert_eq!(ret, TickResult::Break),
+					(2, 2) => assert_eq!(ret, TickResult::Debug),
+					(6, 6) => assert_eq!(ret, TickResult::Halt),
+					_ => assert_eq!(ret, TickResult::Ok, "from {} to {}", src, dest),
+				}
+
+				if ret != TickResult::Halt {
+					assert_eq!(
+						cpu.cycles_elapsed,
+						1 + (dest == 6) as usize + (src == 6) as usize,
+						"from {} to {}",
+						src,
+						dest
+					);
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn ld_r8_n8() {
+		let mem = RefCell::new([0; 3]);
+		let mut cpu = State::new(TinyAddrSpace(&mem));
+
+		mem.borrow_mut()[1] = 42;
+		for dest in 0..=7 {
+			let mut regs = [b'G', b'A', b'M', b'E', b' ', b'B', b'O', b'Y']; // 8 unique values :)
+			for i in 0..=7 {
+				cpu.set_r8_by_id(i, regs[i as usize]);
+			}
+			assert_eq!(cpu.get_hl() % 3, 2); // Otherwise [hl] doesn't point to the last cell
+
+			cpu.pc = 0;
+			mem.borrow_mut()[0] = 0x06 | dest << 3; // Write the instruction
+			cpu.cycles_elapsed = 0;
+
+			let ret = cpu.tick();
+
+			regs[dest as usize] = 42;
+			for i in 0..=7 {
+				assert_eq!(
+					if i == 6 {
+						mem.borrow_mut()[2]
+					} else {
+						cpu.get_r8_by_id(i)
+					},
+					regs[i as usize],
+					"to {}",
+					dest
+				);
+			}
+
+			assert_eq!(ret, TickResult::Ok, "to {}", dest);
+
+			assert_eq!(cpu.cycles_elapsed, 2 + (dest == 6) as usize, "to {}", dest);
+		}
+	}
+
+	#[test]
+	fn inc_dec_r8() {
+		let mem = RefCell::new([0; 3]);
+		let mut cpu = State::new(TinyAddrSpace(&mem));
+
+		let mut regs = [b'G', b'A', b'M', b'E', b' ', b'B', b'O', b'Y']; // 8 unique values :)
+		for i in 0..=7 {
+			cpu.set_r8_by_id(i, regs[i as usize]);
+		}
+		assert_eq!(cpu.get_hl() % 3, 2); // Otherwise [hl] doesn't point to the last cell
+
+		for dest in 0..=7 {
+			for dec in [false, true] {
+				cpu.pc = 0;
+				mem.borrow_mut()[0] = 0x04 | dest << 3 | dec as u8; // Write the instruction
+				cpu.cycles_elapsed = 0;
+				let c = dest > 3;
+				cpu.f.set_c(c);
+
+				let ret = cpu.tick();
+
+				regs[dest as usize] =
+					regs[dest as usize].wrapping_add(if dec { u8::MAX } else { 1 });
+				for i in 0..=7 {
+					assert_eq!(
+						if i == 6 {
+							mem.borrow_mut()[2]
+						} else {
+							cpu.get_r8_by_id(i)
+						},
+						regs[i as usize],
+						"{} {}",
+						if dec { "dec" } else { "inc" },
+						dest
+					);
+				}
+
+				assert_eq!(ret, TickResult::Ok, "to {}", dest);
+
+				let z = regs[dest as usize] == 0;
+				let h = regs[dest as usize] & 0xF == if dec { 0xF } else { 0 };
+				assert_flags(&cpu, z, dec, h, c, (dec, dest));
+				assert_eq!(
+					cpu.cycles_elapsed,
+					1 + (dest == 6) as usize * 2,
+					"{} {}",
+					if dec { "dec" } else { "inc" },
+					dest
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn alu_r8() {
+		let mem = RefCell::new([0; 3]);
+		let mut cpu = State::new(TinyAddrSpace(&mem));
+
+		let ops: [&dyn Fn(u8, u8, bool) -> (u8, bool, bool, bool, bool); 8] = [
+			&|a, operand, _carry| {
+				// add
+				let res = a as u16 + operand as u16;
+				(
+					res as u8,
+					res == 0,
+					false,
+					(a & 0xF) + (operand & 0xF) > 0xF,
+					res > 0xFF,
+				)
+			},
+			&|a, operand, carry| {
+				// adc
+				let res = a as u16 + operand as u16 + carry as u16;
+				(
+					res as u8,
+					res == 0,
+					false,
+					(a & 0xF) + (operand & 0xF) + carry as u8 > 0xF,
+					res > 0xFF,
+				)
+			},
+			&|a, operand, _carry| {
+				// sub
+				let res = a as i16 - operand as i16;
+				(
+					res as u8,
+					res == 0,
+					true,
+					(a & 0xF) as i8 - ((operand & 0xF) as i8) < 0,
+					res < 0,
+				)
+			},
+			&|a, operand, carry| {
+				// sbc
+				let res = a as i16 - operand as i16 - carry as i16;
+				(
+					res as u8,
+					res == 0,
+					true,
+					(a & 0xF) as i8 - (operand & 0xF) as i8 - (carry as i8) < 0,
+					res < 0,
+				)
+			},
+			&|a, operand, _carry| {
+				// and
+				let res = a & operand;
+				(res as u8, res == 0, false, true, false)
+			},
+			&|a, operand, _carry| {
+				// xor
+				let res = a ^ operand;
+				(res as u8, res == 0, false, false, false)
+			},
+			&|a, operand, _carry| {
+				// or
+				let res = a | operand;
+				(res as u8, res == 0, false, false, false)
+			},
+			&|a, operand, _carry| {
+				// cp
+				let res = a as i16 - operand as i16;
+				(
+					a,
+					res == 0,
+					true,
+					(a & 0xF) as i8 - ((operand & 0xF) as i8) < 0,
+					res < 0,
+				)
+			},
+		];
+
+		let regs = [b'G', b'A', b'M', b'E', b' ', b'B', b'O', b'Y']; // 8 unique values :)
+		mem.borrow_mut()[1] = 42;
+
+		for op in 0..=7 {
+			for carry_in in [false, true] {
+				for operand in 0..=8 {
+					let params = format!(
+						"[c={}] {} a, {}",
+						carry_in,
+						OP_NAMES[op as usize],
+						if operand == 8 {
+							"42"
+						} else {
+							REG_NAMES[operand as usize]
+						}
+					);
+
+					for i in 0..=7 {
+						cpu.set_r8_by_id(i, regs[i as usize]);
+					}
+					assert_eq!(cpu.get_hl() % 3, 2); // Otherwise [hl] doesn't point to the last cell
+
+					cpu.pc = 0;
+					mem.borrow_mut()[0] = if operand == 8 {
+						0xC6 | op << 3
+					} else {
+						0x80 | op << 3 | operand
+					}; // Write the instruction
+					cpu.cycles_elapsed = 0;
+					cpu.f.set_c(carry_in);
+
+					let ret = cpu.tick();
+
+					let (res, z, n, h, c) = ops[op as usize](
+						regs[7],
+						if operand == 8 {
+							42
+						} else {
+							regs[operand as usize]
+						},
+						carry_in,
+					);
+					for i in 0..=6 {
+						assert_eq!(
+							if i == 6 {
+								mem.borrow_mut()[2]
+							} else {
+								cpu.get_r8_by_id(i)
+							},
+							regs[i as usize],
+							"{:?}",
+							params
+						);
+					}
+					assert_eq!(cpu.a, res, "{:?}", params);
+
+					assert_eq!(ret, TickResult::Ok, "to {}", operand);
+
+					assert_flags(&cpu, z, n, h, c, &params);
+					assert_eq!(
+						cpu.cycles_elapsed,
+						1 + (operand == 6) as usize + (operand == 8) as usize,
+						"{:?}",
+						params
+					);
+				}
+
+				// TODO: test with immediate operand as well
+			}
+		}
 	}
 }
