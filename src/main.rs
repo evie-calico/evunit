@@ -2,6 +2,8 @@ use clap::Parser;
 use evunit::cpu;
 use evunit::memory::AddressSpace;
 use evunit::sym::Symfile;
+use paste::paste;
+
 use std::fs::File;
 use std::io::Read;
 use std::process::exit;
@@ -128,86 +130,28 @@ impl TestConfig {
 			.as_str();
 		}
 
-		if let Some(value) = self.a {
-			if cpu.a != value {
-				add_err(&mut err_msg, "a", cpu.a, value);
-			}
+		macro_rules! check {
+			(impl $cfg:ident, $name:expr, $cpu:expr) => {
+				if let Some(value) = self.$cfg {
+					if $cpu != value {
+						add_err(&mut err_msg, stringify!($name), $cpu, value);
+					}
+				}
+			};
+			($reg:ident) => {
+				check!(impl $reg, $reg, cpu.$reg)
+			};
+			(get $reg:ident) => {
+				paste! { check!(impl $reg, $reg, cpu.[<get_ $reg>]()) }
+			};
+			(f $flag:ident) => {
+				paste! { check!(impl [<$flag f>], f.$flag, cpu.f.[<get_ $flag>]()) }
+			};
+			($($($i:ident)+),+) => { $( check!($($i)+); )+ };
 		}
-		if let Some(value) = self.b {
-			if cpu.b != value {
-				add_err(&mut err_msg, "b", cpu.b, value);
-			}
-		}
-		if let Some(value) = self.c {
-			if cpu.c != value {
-				add_err(&mut err_msg, "c", cpu.c, value);
-			}
-		}
-		if let Some(value) = self.d {
-			if cpu.d != value {
-				add_err(&mut err_msg, "d", cpu.d, value);
-			}
-		}
-		if let Some(value) = self.e {
-			if cpu.e != value {
-				add_err(&mut err_msg, "e", cpu.e, value);
-			}
-		}
-		if let Some(value) = self.h {
-			if cpu.h != value {
-				add_err(&mut err_msg, "h", cpu.h, value);
-			}
-		}
-		if let Some(value) = self.l {
-			if cpu.l != value {
-				add_err(&mut err_msg, "l", cpu.l, value);
-			}
-		}
-		if let Some(value) = self.zf {
-			if cpu.f.get_z() != value {
-				add_err(&mut err_msg, "f.z", cpu.f.get_z(), value)
-			}
-		}
-		if let Some(value) = self.nf {
-			if cpu.f.get_n() != value {
-				add_err(&mut err_msg, "f.n", cpu.f.get_n(), value)
-			}
-		}
-		if let Some(value) = self.hf {
-			if cpu.f.get_h() != value {
-				add_err(&mut err_msg, "f.h", cpu.f.get_h(), value)
-			}
-		}
-		if let Some(value) = self.cf {
-			if cpu.f.get_c() != value {
-				add_err(&mut err_msg, "f.c", cpu.f.get_c(), value)
-			}
-		}
-		if let Some(value) = self.bc {
-			if cpu.get_bc() != value {
-				add_err(&mut err_msg, "bc", cpu.get_bc(), value)
-			}
-		}
-		if let Some(value) = self.de {
-			if cpu.get_de() != value {
-				add_err(&mut err_msg, "de", cpu.get_de(), value)
-			}
-		}
-		if let Some(value) = self.hl {
-			if cpu.get_hl() != value {
-				add_err(&mut err_msg, "hl", cpu.get_hl(), value)
-			}
-		}
-		if let Some(value) = self.pc {
-			if cpu.pc != value {
-				add_err(&mut err_msg, "pc", cpu.pc, value)
-			}
-		}
-		if let Some(value) = self.sp {
-			if cpu.sp != value {
-				add_err(&mut err_msg, "sp", cpu.sp, value)
-			}
-		}
+		check!(a, b, c, d, e, h, l);
+		check!(f z, f n, f h, f c);
+		check!(get bc, get de, get hl, sp, pc);
 
 		if err_msg.len() == 0 {
 			Ok(())
