@@ -15,6 +15,7 @@ toml = { version = "0.5.9", features = ["preserve_order"] }
 clap = { version = "3.2.17", features = ["derive"] }
 paste = "1.0.9"
 thiserror = "1.0.37"
+try-from-discrim = "1.0.0"
 
 [profile.release]
 lto = true
