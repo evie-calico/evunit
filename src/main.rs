@@ -1,6 +1,6 @@
 use clap::Parser;
-use evunit::sym;
-use evunit::{cpu, memory};
+use gb_sym_file;
+use gb_cpu_sim::{cpu, memory};
 use paste::paste;
 
 use std::collections::HashMap;
@@ -374,14 +374,23 @@ fn main() {
 			})
 			.enumerate()
 			.filter_map(|(n, line)| {
-				sym::parse_line(&line).unwrap_or_else(|error| {
-					eprintln!("Failed to parse {symfile_path} line {}: {error}", n + 1);
-					exit(1);
-				})
+				if let Some(parse_result) = gb_sym_file::parse_line(&line) {
+					match parse_result {
+						Ok((name, loc)) => {
+							Some((name, loc))
+						}
+						Err(parse_error) => {
+							eprintln!("Failed to parse {symfile_path} line {}: {parse_error}", n + 1);
+							exit(1);
+						}
+					}
+				} else {
+					None
+				}
 			})
 			// We are only interested in banked symbols
 			.filter_map(|(name, loc)| match loc {
-				sym::Location::Banked(bank, addr) => Some((name, (bank, addr))),
+				gb_sym_file::Location::Banked(bank, addr) => Some((name, (bank, addr))),
 				_ => None,
 			})
 			.collect()
