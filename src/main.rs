@@ -364,19 +364,17 @@ fn main() {
 			})
 			.enumerate()
 			.filter_map(|(n, line)| {
-				if let Some(parse_result) = gb_sym_file::parse_line(&line) {
+				gb_sym_file::parse_line(&line).map(|parse_result| {
 					match parse_result {
 						Ok((name, loc)) => {
-							Some((name, loc))
+							(name, loc)
 						}
 						Err(parse_error) => {
 							eprintln!("Failed to parse {symfile_path} line {}: {parse_error}", n + 1);
 							exit(1);
 						}
 					}
-				} else {
-					None
-				}
+				})
 			})
 			// We are only interested in banked symbols
 			.filter_map(|(name, loc)| match loc {
