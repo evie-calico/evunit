@@ -291,13 +291,10 @@ fn read_config(
 
 	let mut global_config = TestConfig::new(String::from("Global"));
 	let mut tests: Vec<TestConfig> = vec![];
-	let toml_file = match path.parse::<toml::Value>() {
-		Ok(file) => file,
-		Err(msg) => {
-			eprintln!("Failed to parse config file: {msg}");
-			exit(1);
-		}
-	};
+	let toml_file = path.parse::<toml::Value>().unwrap_or_else(|msg| {
+		eprintln!("Failed to parse config file: {msg}");
+		exit(1);
+	});
 
 	if let toml::Value::Table(config) = toml_file {
 		for (key, value) in config.iter() {
@@ -488,10 +485,9 @@ fn main() {
 			let path = String::from(dump_dir) + format!("/{}.txt", test.name).as_str();
 
 			match File::create(&path) {
-				Ok(file) => match cpu_state.address_space.dump(file) {
-					Ok(..) => {}
-					Err(msg) => eprintln!("Failed to write dump to {path}: {msg}"),
-				},
+				Ok(file) => cpu_state.address_space.dump(file).unwrap_or_else(|msg| {
+					eprintln!("Failed to write dump to {path}: {msg}");
+				}),
 				Err(msg) => eprintln!("Failed to open {path}: {msg}"),
 			}
 		}
