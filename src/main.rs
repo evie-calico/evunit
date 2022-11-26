@@ -328,13 +328,10 @@ enum FailureReason {
 
 fn main() {
 	fn open_input(path: &String) -> File {
-		match File::open(if path == "-" { "/dev/stdin" } else { path }) {
-			Ok(file) => file,
-			Err(msg) => {
-				eprintln!("Failed to open {path}: {msg}");
-				exit(1);
-			}
-		}
+		File::open(if path == "-" { "/dev/stdin" } else { path }).unwrap_or_else(|msg| {
+			eprintln!("Failed to open {path}: {msg}");
+			exit(1)
+		})
 	}
 
 	let cli = Cli::parse();
@@ -342,22 +339,18 @@ fn main() {
 	let rom_path = &cli.rom;
 	let config_path = &cli.config;
 
-	let address_space = match AddressSpace::open(open_input(&rom_path)) {
-		Ok(result) => result,
-		Err(error) => {
-			eprintln!("Failed to read {rom_path}: {error}");
-			exit(1);
-		}
-	};
+	let address_space = AddressSpace::open(open_input(&rom_path)).unwrap_or_else(|error| {
+		eprintln!("Failed to read {rom_path}: {error}");
+		exit(1);
+	});
 
 	let mut config_text = String::new();
-	match open_input(&config_path).read_to_string(&mut config_text) {
-		Ok(..) => {}
-		Err(error) => {
-			eprintln!("Failed to open {config_path}: {error}");
+	open_input(&config_path)
+		.read_to_string(&mut config_text)
+		.unwrap_or_else(|error| {
+			eprintln!("Failed to read {config_path}: {error}");
 			exit(1);
-		}
-	};
+		});
 
 	let symfile = if let Some(symfile_path) = &cli.symfile {
 		let file = File::open(symfile_path).unwrap_or_else(|error| {
