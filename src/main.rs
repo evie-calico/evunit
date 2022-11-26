@@ -556,7 +556,7 @@ impl AddressSpace {
 		let mut rom = Vec::<u8>::new();
 		file.read_to_end(&mut rom)?;
 		if rom.len() < 0x4000 {
-			rom.resize_with(0x4000, || 0xFF);
+			rom.resize(0x4000, 0xFF);
 		}
 		Ok(AddressSpace {
 			rom,
