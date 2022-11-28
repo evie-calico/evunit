@@ -5,7 +5,7 @@ use paste::paste;
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Error, Read, Write};
+use std::io::{stdin, BufRead, BufReader, Error, Read, Write};
 use std::process::exit;
 
 #[derive(Parser)]
@@ -534,7 +534,7 @@ impl memory::AddressSpace for AddressSpace {
 }
 
 impl AddressSpace {
-	pub fn open(mut file: File) -> Result<AddressSpace, Error> {
+	pub fn open<R: Read>(mut file: R) -> Result<AddressSpace, Error> {
 		let mut rom = Vec::<u8>::new();
 		file.read_to_end(&mut rom)?;
 		if rom.len() < 0x4000 {
