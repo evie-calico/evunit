@@ -1,5 +1,4 @@
 use clap::Parser;
-use gb_sym_file;
 use gb_cpu_sim::{cpu, memory};
 use paste::paste;
 
@@ -321,11 +320,15 @@ enum FailureReason {
 }
 
 fn main() {
-	fn open_input(path: &String) -> File {
-		File::open(if path == "-" { "/dev/stdin" } else { path }).unwrap_or_else(|msg| {
-			eprintln!("Failed to open {path}: {msg}");
-			exit(1)
-		})
+	fn open_input(path: &String) -> Box<dyn Read> {
+		if path == "-" {
+			Box::new(stdin())
+		} else {
+			Box::new(File::open(path).unwrap_or_else(|msg| {
+				eprintln!("Failed to open {path}: {msg}");
+				exit(1)
+			}))
+		}
 	}
 
 	let cli = Cli::parse();
