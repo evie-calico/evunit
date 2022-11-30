@@ -365,15 +365,13 @@ fn main() {
 			.enumerate()
 			.filter_map(|(n, line)| {
 				gb_sym_file::parse_line(&line).map(|parse_result| {
-					match parse_result {
-						Ok((name, loc)) => {
-							(name, loc)
-						}
-						Err(parse_error) => {
-							eprintln!("Failed to parse {symfile_path} line {}: {parse_error}", n + 1);
-							exit(1);
-						}
-					}
+					parse_result.unwrap_or_else(|parse_error| {
+						eprintln!(
+							"Failed to parse {symfile_path} line {}: {parse_error}",
+							n + 1
+						);
+						exit(1);
+					})
 				})
 			})
 			// We are only interested in banked symbols
