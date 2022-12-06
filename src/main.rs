@@ -153,7 +153,7 @@ impl TestConfig {
 		check!(f z, f n, f h, f c);
 		check!(get bc, get de, get hl, sp, pc);
 
-		if err_msg.len() == 0 {
+		if err_msg.is_empty() {
 			Ok(())
 		} else {
 			Err(err_msg)
@@ -187,10 +187,7 @@ impl TestConfig {
 	}
 }
 
-fn read_config(
-	path: &String,
-	symfile: &HashMap<String, (u32, u16)>,
-) -> (TestConfig, Vec<TestConfig>) {
+fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> (TestConfig, Vec<TestConfig>) {
 	fn parse_u8(value: &toml::Value, hint: &str) -> Option<u8> {
 		if let toml::Value::Integer(value) = value {
 			if *value < 256 && *value >= -128 {
@@ -279,7 +276,7 @@ fn read_config(
 				if let toml::Value::Table(value) = value {
 					let mut result_config = TestConfig::new(String::from(key));
 					for (key, value) in value.iter() {
-						parse_configuration(&mut result_config, key, value, &symfile);
+						parse_configuration(&mut result_config, key, value, symfile);
 					}
 					test.result = Some(Box::new(result_config));
 				} else {
@@ -302,10 +299,10 @@ fn read_config(
 				tests.push(TestConfig::new(key.to_string()));
 				for (key, value) in value.iter() {
 					let index = tests.len() - 1;
-					parse_configuration(&mut tests[index], key, value, &symfile);
+					parse_configuration(&mut tests[index], key, value, symfile);
 				}
 			} else {
-				parse_configuration(&mut global_config, key, value, &symfile);
+				parse_configuration(&mut global_config, key, value, symfile);
 			}
 		}
 	} else {
@@ -333,8 +330,8 @@ fn main() {
 
 	let cli = Cli::parse();
 
-	let rom_path = &cli.rom;
-	let config_path = &cli.config;
+	let rom_path = cli.rom;
+	let config_path = cli.config;
 
 	let address_space = AddressSpace::open(open_input(&rom_path)).unwrap_or_else(|error| {
 		eprintln!("Failed to read {rom_path}: {error}");
@@ -491,7 +488,7 @@ fn main() {
 	}
 
 	// When in SILENCE_ALL only print the final message if a test failed.
-	if !(cli.silent >= SILENCE_ALL) || fail_count != 0 {
+	if cli.silent < SILENCE_ALL || fail_count != 0 {
 		println!(
 			"{}: All tests complete. {}/{} passed.",
 			rom_path,
@@ -552,7 +549,7 @@ impl AddressSpace {
 		})
 	}
 
-	pub fn dump(&self, mut file: File) -> Result<(), Error> {
+	pub fn dump<W: Write>(&self, mut file: W) -> Result<(), Error> {
 		let mut output = String::from("");
 
 		let mut address = 0x8000;
