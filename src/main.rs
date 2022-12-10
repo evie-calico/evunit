@@ -4,7 +4,7 @@ use paste::paste;
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{stdin, BufRead, BufReader, Error, Read, Write};
+use std::io::{read_to_string, stdin, BufRead, BufReader, Error, Read, Write};
 use std::process::exit;
 
 #[derive(Parser)]
@@ -37,6 +37,7 @@ const SILENCE_ALL: u8 = 2; // Silences all output unless an error occurs.
 // All of these parameters are optional. This is because the initial values as
 // well as the resulting values do not all need to be present, and in the case
 // of results, may even be unknown.
+#[derive(Debug, Clone)]
 struct TestConfig {
 	name: String,
 	a: Option<u8>,
@@ -184,9 +185,12 @@ impl TestConfig {
 			result: None,
 		}
 	}
+	fn set_name(&mut self, name: String) {
+		self.name = name;
+	}
 }
 
-fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> (TestConfig, Vec<TestConfig>) {
+fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestConfig> {
 	fn parse_u8(value: &toml::Value, hint: &str) -> Option<u8> {
 		if let toml::Value::Integer(value) = value {
 			if *value < 256 && *value >= -128 {
@@ -295,10 +299,11 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> (TestConfig
 	if let toml::Value::Table(config) = toml_file {
 		for (key, value) in config.iter() {
 			if let toml::Value::Table(value) = value {
-				tests.push(TestConfig::new(key.to_string()));
+				tests.push(global_config.clone());
+				let last_test = tests.last_mut().unwrap();
+				last_test.set_name(key.to_string());
 				for (key, value) in value.iter() {
-					let index = tests.len() - 1;
-					parse_configuration(&mut tests[index], key, value, symfile);
+					parse_configuration(last_test, key, value, symfile);
 				}
 			} else {
 				parse_configuration(&mut global_config, key, value, symfile);
@@ -308,7 +313,7 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> (TestConfig
 		eprintln!("TOML root is not a table (Please report this and provide the TOML file used.)");
 	}
 
-	(global_config, tests)
+	tests
 }
 
 #[derive(PartialEq)]
@@ -320,7 +325,7 @@ enum FailureReason {
 }
 
 fn main() {
-	fn open_input(path: &String) -> Box<dyn Read> {
+	fn open_input(path: &str) -> Box<dyn Read> {
 		if path == "-" {
 			Box::new(BufReader::new(stdin()))
 		} else {
@@ -341,13 +346,10 @@ fn main() {
 		exit(1);
 	});
 
-	let mut config_text = String::new();
-	open_input(&config_path)
-		.read_to_string(&mut config_text)
-		.unwrap_or_else(|error| {
-			eprintln!("Failed to read {config_path}: {error}");
-			exit(1);
-		});
+	let config_text = read_to_string(open_input(&config_path)).unwrap_or_else(|error| {
+		eprintln!("Failed to read {config_path}: {error}");
+		exit(1);
+	});
 
 	let symfile = if let Some(symfile_path) = &cli.symfile {
 		let file = File::open(symfile_path).unwrap_or_else(|error| {
@@ -384,12 +386,11 @@ fn main() {
 		HashMap::new()
 	};
 
-	let (global_config, tests) = read_config(&config_text, &symfile);
+	let tests = read_config(&config_text, &symfile);
 	let mut fail_count = 0;
 
 	for test in &tests {
 		let mut cpu_state = cpu::State::new(address_space.clone());
-		global_config.configure(&mut cpu_state);
 		test.configure(&mut cpu_state);
 
 		// Push the return address 0xFFFF onto the stack.
@@ -399,18 +400,18 @@ fn main() {
 		cpu_state.write(cpu_state.sp - 2, 0xFF);
 		cpu_state.sp -= 2;
 
-		let failure_reason = 'tick: loop {
+		let failure_reason = loop {
 			match cpu_state.tick() {
 				cpu::TickResult::Ok => {}
 				cpu::TickResult::Halt => break FailureReason::None,
 				cpu::TickResult::Stop => break FailureReason::None,
 				cpu::TickResult::Break => {
-					if global_config.enable_breakpoints {
+					if test.enable_breakpoints {
 						println!("{rom_path}: BREAKPOINT in {} \n{cpu_state}", test.name);
 					}
 				}
 				cpu::TickResult::Debug => {
-					if global_config.enable_breakpoints {
+					if test.enable_breakpoints {
 						println!("{rom_path}: DEBUG in {}\n{cpu_state}", test.name);
 					}
 				}
@@ -423,21 +424,11 @@ fn main() {
 				break FailureReason::None;
 			}
 
-			for addr in &global_config.crash_addresses {
-				if cpu_state.pc == *addr {
-					break 'tick FailureReason::Crash;
-				}
+			if test.crash_addresses.contains(&cpu_state.pc) {
+				break FailureReason::Crash;
 			}
 
-			for addr in &test.crash_addresses {
-				if cpu_state.pc == *addr {
-					break 'tick FailureReason::Crash;
-				}
-			}
-
-			if cpu_state.cycles_elapsed >= global_config.timeout
-				|| cpu_state.cycles_elapsed >= test.timeout
-			{
+			if cpu_state.cycles_elapsed >= test.timeout {
 				break FailureReason::Timeout;
 			}
 		};
