@@ -153,7 +153,7 @@ impl TestConfig {
 		check!(f z, f n, f h, f c);
 		check!(get bc, get de, get hl, sp, pc);
 
-		if err_msg.len() == 0 {
+		if err_msg.is_empty() {
 			Ok(())
 		} else {
 			Err(err_msg)
@@ -187,10 +187,7 @@ impl TestConfig {
 	}
 }
 
-fn read_config(
-	path: &String,
-	symfile: &HashMap<String, (u32, u16)>,
-) -> (TestConfig, Vec<TestConfig>) {
+fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> (TestConfig, Vec<TestConfig>) {
 	fn parse_u8(value: &toml::Value, hint: &str) -> Option<u8> {
 		if let toml::Value::Integer(value) = value {
 			if *value < 256 && *value >= -128 {
@@ -279,7 +276,7 @@ fn read_config(
 				if let toml::Value::Table(value) = value {
 					let mut result_config = TestConfig::new(String::from(key));
 					for (key, value) in value.iter() {
-						parse_configuration(&mut result_config, key, value, &symfile);
+						parse_configuration(&mut result_config, key, value, symfile);
 					}
 					test.result = Some(Box::new(result_config));
 				} else {
@@ -291,13 +288,10 @@ fn read_config(
 
 	let mut global_config = TestConfig::new(String::from("Global"));
 	let mut tests: Vec<TestConfig> = vec![];
-	let toml_file = match path.parse::<toml::Value>() {
-		Ok(file) => file,
-		Err(msg) => {
-			eprintln!("Failed to parse config file: {msg}");
-			exit(1);
-		}
-	};
+	let toml_file = path.parse::<toml::Value>().unwrap_or_else(|msg| {
+		eprintln!("Failed to parse config file: {msg}");
+		exit(1);
+	});
 
 	if let toml::Value::Table(config) = toml_file {
 		for (key, value) in config.iter() {
@@ -305,10 +299,10 @@ fn read_config(
 				tests.push(TestConfig::new(key.to_string()));
 				for (key, value) in value.iter() {
 					let index = tests.len() - 1;
-					parse_configuration(&mut tests[index], key, value, &symfile);
+					parse_configuration(&mut tests[index], key, value, symfile);
 				}
 			} else {
-				parse_configuration(&mut global_config, key, value, &symfile);
+				parse_configuration(&mut global_config, key, value, symfile);
 			}
 		}
 	} else {
@@ -328,36 +322,29 @@ enum FailureReason {
 
 fn main() {
 	fn open_input(path: &String) -> File {
-		match File::open(if path == "-" { "/dev/stdin" } else { path }) {
-			Ok(file) => file,
-			Err(msg) => {
-				eprintln!("Failed to open {path}: {msg}");
-				exit(1);
-			}
-		}
+		File::open(if path == "-" { "/dev/stdin" } else { path }).unwrap_or_else(|msg| {
+			eprintln!("Failed to open {path}: {msg}");
+			exit(1)
+		})
 	}
 
 	let cli = Cli::parse();
 
-	let rom_path = &cli.rom;
-	let config_path = &cli.config;
+	let rom_path = cli.rom;
+	let config_path = cli.config;
 
-	let address_space = match AddressSpace::open(open_input(&rom_path)) {
-		Ok(result) => result,
-		Err(error) => {
-			eprintln!("Failed to read {rom_path}: {error}");
-			exit(1);
-		}
-	};
+	let address_space = AddressSpace::open(open_input(&rom_path)).unwrap_or_else(|error| {
+		eprintln!("Failed to read {rom_path}: {error}");
+		exit(1);
+	});
 
 	let mut config_text = String::new();
-	match open_input(&config_path).read_to_string(&mut config_text) {
-		Ok(..) => {}
-		Err(error) => {
-			eprintln!("Failed to open {config_path}: {error}");
+	open_input(&config_path)
+		.read_to_string(&mut config_text)
+		.unwrap_or_else(|error| {
+			eprintln!("Failed to read {config_path}: {error}");
 			exit(1);
-		}
-	};
+		});
 
 	let symfile = if let Some(symfile_path) = &cli.symfile {
 		let file = File::open(symfile_path).unwrap_or_else(|error| {
@@ -374,19 +361,15 @@ fn main() {
 			})
 			.enumerate()
 			.filter_map(|(n, line)| {
-				if let Some(parse_result) = gb_sym_file::parse_line(&line) {
-					match parse_result {
-						Ok((name, loc)) => {
-							Some((name, loc))
-						}
-						Err(parse_error) => {
-							eprintln!("Failed to parse {symfile_path} line {}: {parse_error}", n + 1);
-							exit(1);
-						}
-					}
-				} else {
-					None
-				}
+				gb_sym_file::parse_line(&line).map(|parse_result| {
+					parse_result.unwrap_or_else(|parse_error| {
+						eprintln!(
+							"Failed to parse {symfile_path} line {}: {parse_error}",
+							n + 1
+						);
+						exit(1);
+					})
+				})
 			})
 			// We are only interested in banked symbols
 			.filter_map(|(name, loc)| match loc {
@@ -495,10 +478,9 @@ fn main() {
 			let path = String::from(dump_dir) + format!("/{}.txt", test.name).as_str();
 
 			match File::create(&path) {
-				Ok(file) => match cpu_state.address_space.dump(file) {
-					Ok(..) => {}
-					Err(msg) => eprintln!("Failed to write dump to {path}: {msg}"),
-				},
+				Ok(file) => cpu_state.address_space.dump(file).unwrap_or_else(|msg| {
+					eprintln!("Failed to write dump to {path}: {msg}");
+				}),
 				Err(msg) => eprintln!("Failed to open {path}: {msg}"),
 			}
 		}
@@ -506,7 +488,7 @@ fn main() {
 	}
 
 	// When in SILENCE_ALL only print the final message if a test failed.
-	if !(cli.silent >= SILENCE_ALL) || fail_count != 0 {
+	if cli.silent < SILENCE_ALL || fail_count != 0 {
 		println!(
 			"{}: All tests complete. {}/{} passed.",
 			rom_path,
@@ -556,7 +538,7 @@ impl AddressSpace {
 		let mut rom = Vec::<u8>::new();
 		file.read_to_end(&mut rom)?;
 		if rom.len() < 0x4000 {
-			rom.resize_with(0x4000, || 0xFF);
+			rom.resize(0x4000, 0xFF);
 		}
 		Ok(AddressSpace {
 			rom,
@@ -567,7 +549,7 @@ impl AddressSpace {
 		})
 	}
 
-	pub fn dump(&self, mut file: File) -> Result<(), Error> {
+	pub fn dump<W: Write>(&self, mut file: W) -> Result<(), Error> {
 		let mut output = String::from("");
 
 		let mut address = 0x8000;
