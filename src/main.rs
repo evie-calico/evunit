@@ -322,7 +322,7 @@ enum FailureReason {
 fn main() {
 	fn open_input(path: &String) -> Box<dyn Read> {
 		if path == "-" {
-			Box::new(stdin())
+			Box::new(BufReader::new(stdin()))
 		} else {
 			Box::new(File::open(path).unwrap_or_else(|msg| {
 				eprintln!("Failed to open {path}: {msg}");
