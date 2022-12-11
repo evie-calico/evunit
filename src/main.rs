@@ -192,16 +192,16 @@ impl TestConfig {
 
 fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestConfig> {
 	fn parse_u8(value: &toml::Value, hint: &str) -> Option<u8> {
-		if let toml::Value::Integer(value) = value {
-			if *value < 256 && *value >= -128 {
-				Some(*value as u8)
-			} else {
+		match value {
+			toml::Value::Integer(value) if -128 <= *value && *value < 256 => Some(*value as u8),
+			toml::Value::Integer(_) => {
 				eprintln!("Value of `{hint}` must be an 8-bit integer.");
 				None
 			}
-		} else {
-			eprintln!("Value of `{hint}` must be an 8-bit integer.");
-			None
+			_ => {
+				eprintln!("Value of `{hint}` must be an 8-bit integer.");
+				None
+			}
 		}
 	}
 
@@ -210,32 +210,36 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 		hint: &str,
 		symfile: &HashMap<String, (u32, u16)>,
 	) -> Option<u16> {
-		if let toml::Value::Integer(value) = value {
-			if *value < 65536 && *value >= -32768 {
+		match value {
+			toml::Value::Integer(value) if -32768 <= *value && *value < 65536 => {
 				Some(*value as u16)
-			} else {
+			}
+			toml::Value::Integer(_) => {
 				eprintln!("Value of `{hint}` must be a 16-bit integer.");
 				None
 			}
-		} else if let toml::Value::String(value) = value {
-			if let Some((_, addr)) = symfile.get(value) {
-				Some(*addr)
-			} else {
-				eprintln!("Symbol \"{value}\" not found.");
-				exit(1);
+			toml::Value::String(value) => {
+				if let Some((_, addr)) = symfile.get(value) {
+					Some(*addr)
+				} else {
+					eprintln!("Symbol \"{value}\" not found.");
+					exit(1);
+				}
 			}
-		} else {
-			eprintln!("Value of `{hint}` must be a 16-bit integer.");
-			None
+			_ => {
+				eprintln!("Value of `{hint}` must be a 16-bit integer.");
+				None
+			}
 		}
 	}
 
 	fn parse_bool(value: &toml::Value, hint: &str) -> Option<bool> {
-		if let toml::Value::Boolean(value) = value {
-			Some(*value)
-		} else {
-			eprintln!("Value of `{hint}` must be an 8-bit integer.");
-			None
+		match value {
+			toml::Value::Boolean(value) => Some(*value),
+			_ => {
+				eprintln!("Value of `{hint}` must be a boolean.");
+				None
+			}
 		}
 	}
 
