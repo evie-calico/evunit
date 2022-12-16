@@ -66,6 +66,19 @@ struct TestConfig {
 	result: Option<Box<TestConfig>>,
 }
 
+enum TestResult {
+	Pass,
+	Incorrect(String),
+	Failure(FailureReason),
+}
+
+#[derive(PartialEq)]
+enum FailureReason {
+	Crash,
+	InvalidOpcode,
+	Timeout,
+}
+
 impl TestConfig {
 	fn configure<S: memory::AddressSpace>(&self, cpu: &mut cpu::State<S>) {
 		// Macros should be able to do something like this?
@@ -157,6 +170,68 @@ impl TestConfig {
 			Ok(())
 		} else {
 			Err(err_msg)
+		}
+	}
+
+	fn run<A: memory::AddressSpace>(
+		&self,
+		cpu_state: &mut cpu::State<A>,
+		rom_path: &str,
+	) -> TestResult {
+		self.configure(cpu_state);
+
+		// Push the return address 0xFFFF onto the stack.
+		// If pc == 0xFFFF the test is complete.
+		// TODO: make the success address configurable.
+		cpu_state.write(cpu_state.sp - 1, 0xFF);
+		cpu_state.write(cpu_state.sp - 2, 0xFF);
+		cpu_state.sp -= 2;
+
+		let condition = loop {
+			match cpu_state.tick() {
+				cpu::TickResult::Ok => {}
+				cpu::TickResult::Halt => break Ok(()),
+				cpu::TickResult::Stop => break Ok(()),
+				cpu::TickResult::Break => {
+					if self.enable_breakpoints {
+						println!("{rom_path}: BREAKPOINT in {} \n{cpu_state}", self.name);
+					}
+				}
+				cpu::TickResult::Debug => {
+					if self.enable_breakpoints {
+						println!("{rom_path}: DEBUG in {}\n{cpu_state}", self.name);
+					}
+				}
+				cpu::TickResult::InvalidOpcode => {
+					break Err(FailureReason::InvalidOpcode);
+				}
+			}
+
+			if cpu_state.pc == 0xFFFF {
+				break Ok(());
+			}
+
+			if self.crash_addresses.contains(&cpu_state.pc) {
+				break Err(FailureReason::Crash);
+			}
+
+			if cpu_state.cycles_elapsed >= self.timeout {
+				break Err(FailureReason::Timeout);
+			}
+		};
+
+		match condition {
+			Err(failure_reason) => TestResult::Failure(failure_reason),
+			Ok(()) => {
+				if let Some(result) = &self.result {
+					match result.compare(&cpu_state) {
+						Ok(()) => TestResult::Pass,
+						Err(msg) => TestResult::Incorrect(msg),
+					}
+				} else {
+					TestResult::Pass
+				}
+			}
 		}
 	}
 
@@ -322,13 +397,6 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 	tests
 }
 
-#[derive(PartialEq)]
-enum FailureReason {
-	Crash,
-	InvalidOpcode,
-	Timeout,
-}
-
 fn main() {
 	fn open_input(path: &str) -> Box<dyn Read> {
 		if path == "-" {
@@ -396,50 +464,21 @@ fn main() {
 
 	for test in &tests {
 		let mut cpu_state = cpu::State::new(address_space.clone());
-		test.configure(&mut cpu_state);
 
-		// Push the return address 0xFFFF onto the stack.
-		// If pc == 0xFFFF the test is complete.
-		// TODO: make the success address configurable.
-		cpu_state.write(cpu_state.sp - 1, 0xFF);
-		cpu_state.write(cpu_state.sp - 2, 0xFF);
-		cpu_state.sp -= 2;
-
-		let condition = loop {
-			match cpu_state.tick() {
-				cpu::TickResult::Ok => {}
-				cpu::TickResult::Halt => break Ok(()),
-				cpu::TickResult::Stop => break Ok(()),
-				cpu::TickResult::Break => {
-					if test.enable_breakpoints {
-						println!("{rom_path}: BREAKPOINT in {} \n{cpu_state}", test.name);
-					}
+		match test.run(&mut cpu_state, &rom_path) {
+			TestResult::Pass => {
+				if cli.silent < SILENCE_PASSING {
+					println!("\x1B[92m{}: {} passed\x1B[0m", rom_path, test.name);
 				}
-				cpu::TickResult::Debug => {
-					if test.enable_breakpoints {
-						println!("{rom_path}: DEBUG in {}\n{cpu_state}", test.name);
-					}
-				}
-				cpu::TickResult::InvalidOpcode => {
-					break Err(FailureReason::InvalidOpcode);
-				}
+				continue;
 			}
-
-			if cpu_state.pc == 0xFFFF {
-				break Ok(());
+			TestResult::Incorrect(msg) => {
+				print!(
+					"\x1B[91m{}: {} failed\x1B[0m:\n{}",
+					rom_path, test.name, msg
+				);
 			}
-
-			if test.crash_addresses.contains(&cpu_state.pc) {
-				break Err(FailureReason::Crash);
-			}
-
-			if cpu_state.cycles_elapsed >= test.timeout {
-				break Err(FailureReason::Timeout);
-			}
-		};
-
-		match condition {
-			Err(failure_reason) => {
+			TestResult::Failure(failure_reason) => {
 				println!(
 					"\x1B[91m{}: {} failed\x1B[0m:\n{}\n{}",
 					rom_path,
@@ -451,30 +490,6 @@ fn main() {
 					},
 					cpu_state
 				);
-			}
-			Ok(()) => {
-				let result = if let Some(result) = &test.result {
-					result
-				} else {
-					if cli.silent < SILENCE_PASSING {
-						println!("\x1B[92m{}: {} passed\x1B[0m", rom_path, test.name);
-					}
-					continue; // This continue skips failure handling.
-				};
-				match result.compare(&cpu_state) {
-					Ok(()) => {
-						if cli.silent < SILENCE_PASSING {
-							println!("\x1B[92m{}: {} passed\x1B[0m", rom_path, test.name);
-						}
-						continue;
-					}
-					Err(msg) => {
-						print!(
-							"\x1B[91m{}: {} failed\x1B[0m:\n{}",
-							rom_path, test.name, msg
-						);
-					}
-				}
 			}
 		}
 
