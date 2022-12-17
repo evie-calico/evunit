@@ -38,8 +38,7 @@ const SILENCE_ALL: u8 = 2; // Silences all output unless an error occurs.
 // well as the resulting values do not all need to be present, and in the case
 // of results, may even be unknown.
 #[derive(Debug, Clone)]
-struct TestConfig {
-	name: String,
+struct Registers {
 	a: Option<u8>,
 	b: Option<u8>,
 	c: Option<u8>,
@@ -58,28 +57,9 @@ struct TestConfig {
 	hl: Option<u16>,
 	pc: Option<u16>,
 	sp: Option<u16>,
-
-	crash_addresses: Vec<u16>,
-	enable_breakpoints: bool,
-	timeout: usize,
-
-	result: Option<Box<TestConfig>>,
 }
 
-enum TestResult {
-	Pass,
-	Incorrect(String),
-	Failure(FailureReason),
-}
-
-#[derive(PartialEq)]
-enum FailureReason {
-	Crash,
-	InvalidOpcode,
-	Timeout,
-}
-
-impl TestConfig {
+impl Registers {
 	fn configure<S: memory::AddressSpace>(&self, cpu: &mut cpu::State<S>) {
 		// Macros should be able to do something like this?
 		if let Some(value) = self.a {
@@ -173,12 +153,60 @@ impl TestConfig {
 		}
 	}
 
+	fn new() -> Registers {
+		Registers {
+			a: None,
+			b: None,
+			c: None,
+			d: None,
+			e: None,
+			h: None,
+			l: None,
+			zf: None,
+			nf: None,
+			hf: None,
+			cf: None,
+			bc: None,
+			de: None,
+			hl: None,
+			pc: None,
+			sp: None,
+		}
+	}
+}
+
+#[derive(Debug, Clone)]
+struct TestConfig {
+	name: String,
+
+	crash_addresses: Vec<u16>,
+	enable_breakpoints: bool,
+	timeout: usize,
+
+	initial: Registers,
+	result: Option<Registers>,
+}
+
+enum TestResult {
+	Pass,
+	Incorrect(String),
+	Failure(FailureReason),
+}
+
+#[derive(PartialEq)]
+enum FailureReason {
+	Crash,
+	InvalidOpcode,
+	Timeout,
+}
+
+impl TestConfig {
 	fn run<A: memory::AddressSpace>(
 		&self,
 		cpu_state: &mut cpu::State<A>,
 		rom_path: &str,
 	) -> TestResult {
-		self.configure(cpu_state);
+		self.initial.configure(cpu_state);
 
 		// Push the return address 0xFFFF onto the stack.
 		// If pc == 0xFFFF the test is complete.
@@ -224,7 +252,7 @@ impl TestConfig {
 			Err(failure_reason) => TestResult::Failure(failure_reason),
 			Ok(()) => {
 				if let Some(result) = &self.result {
-					match result.compare(&cpu_state) {
+					match result.compare(cpu_state) {
 						Ok(()) => TestResult::Pass,
 						Err(msg) => TestResult::Incorrect(msg),
 					}
@@ -238,25 +266,10 @@ impl TestConfig {
 	fn new(name: String) -> TestConfig {
 		TestConfig {
 			name,
-			a: None,
-			b: None,
-			c: None,
-			d: None,
-			e: None,
-			h: None,
-			l: None,
-			zf: None,
-			nf: None,
-			hf: None,
-			cf: None,
-			bc: None,
-			de: None,
-			hl: None,
-			pc: None,
-			sp: None,
 			crash_addresses: vec![],
 			enable_breakpoints: true,
 			timeout: 65536,
+			initial: Registers::new(),
 			result: None,
 		}
 	}
@@ -325,22 +338,22 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 		symfile: &HashMap<String, (u32, u16)>,
 	) {
 		match key {
-			"a" => test.a = parse_u8(value, key),
-			"b" => test.b = parse_u8(value, key),
-			"c" => test.c = parse_u8(value, key),
-			"d" => test.d = parse_u8(value, key),
-			"e" => test.e = parse_u8(value, key),
-			"h" => test.h = parse_u8(value, key),
-			"l" => test.l = parse_u8(value, key),
-			"f.z" => test.zf = parse_bool(value, key),
-			"f.n" => test.nf = parse_bool(value, key),
-			"f.h" => test.hf = parse_bool(value, key),
-			"f.c" => test.cf = parse_bool(value, key),
-			"bc" => test.bc = parse_u16(value, key, symfile),
-			"de" => test.de = parse_u16(value, key, symfile),
-			"hl" => test.hl = parse_u16(value, key, symfile),
-			"pc" => test.pc = parse_u16(value, key, symfile),
-			"sp" => test.sp = parse_u16(value, key, symfile),
+			"a" => test.initial.a = parse_u8(value, key),
+			"b" => test.initial.b = parse_u8(value, key),
+			"c" => test.initial.c = parse_u8(value, key),
+			"d" => test.initial.d = parse_u8(value, key),
+			"e" => test.initial.e = parse_u8(value, key),
+			"h" => test.initial.h = parse_u8(value, key),
+			"l" => test.initial.l = parse_u8(value, key),
+			"f.z" => test.initial.zf = parse_bool(value, key),
+			"f.n" => test.initial.nf = parse_bool(value, key),
+			"f.h" => test.initial.hf = parse_bool(value, key),
+			"f.c" => test.initial.cf = parse_bool(value, key),
+			"bc" => test.initial.bc = parse_u16(value, key, symfile),
+			"de" => test.initial.de = parse_u16(value, key, symfile),
+			"hl" => test.initial.hl = parse_u16(value, key, symfile),
+			"pc" => test.initial.pc = parse_u16(value, key, symfile),
+			"sp" => test.initial.sp = parse_u16(value, key, symfile),
 			"crash" => {
 				if let Some(address) = parse_u16(value, key, symfile) {
 					test.crash_addresses.push(address);
@@ -356,11 +369,29 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 			}
 			&_ => {
 				if let toml::Value::Table(value) = value {
-					let mut result_config = TestConfig::new(String::from(key));
+					let mut result = Registers::new();
 					for (key, value) in value.iter() {
-						parse_configuration(&mut result_config, key, value, symfile);
+						match key.as_str() {
+							"a" => result.a = parse_u8(value, key),
+							"b" => result.b = parse_u8(value, key),
+							"c" => result.c = parse_u8(value, key),
+							"d" => result.d = parse_u8(value, key),
+							"e" => result.e = parse_u8(value, key),
+							"h" => result.h = parse_u8(value, key),
+							"l" => result.l = parse_u8(value, key),
+							"f.z" => result.zf = parse_bool(value, key),
+							"f.n" => result.nf = parse_bool(value, key),
+							"f.h" => result.hf = parse_bool(value, key),
+							"f.c" => result.cf = parse_bool(value, key),
+							"bc" => result.bc = parse_u16(value, key, symfile),
+							"de" => result.de = parse_u16(value, key, symfile),
+							"hl" => result.hl = parse_u16(value, key, symfile),
+							"pc" => result.pc = parse_u16(value, key, symfile),
+							"sp" => result.sp = parse_u16(value, key, symfile),
+							&_ => println!("Unknown config {key} = {value:?}"),
+						}
 					}
-					test.result = Some(Box::new(result_config));
+					test.result = Some(result);
 				} else {
 					println!("Unknown config {key} = {value:?}");
 				}
