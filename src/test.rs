@@ -21,7 +21,7 @@ pub enum TestResult {
 	Failure(FailureReason),
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub enum FailureReason {
 	Crash,
 	InvalidOpcode,
