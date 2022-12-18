@@ -204,7 +204,7 @@ impl TestConfig {
 	fn run<A: memory::AddressSpace>(
 		&self,
 		cpu_state: &mut cpu::State<A>,
-		rom_path: &str,
+		logger: &mut TestLogger<'_, '_>,
 	) -> TestResult {
 		self.initial.configure(cpu_state);
 
@@ -221,14 +221,10 @@ impl TestConfig {
 				cpu::TickResult::Halt => break Ok(()),
 				cpu::TickResult::Stop => break Ok(()),
 				cpu::TickResult::Break => {
-					if self.enable_breakpoints {
-						println!("{rom_path}: BREAKPOINT in {} \n{cpu_state}", self.name);
-					}
+					logger.log_breakpoint(cpu_state);
 				}
 				cpu::TickResult::Debug => {
-					if self.enable_breakpoints {
-						println!("{rom_path}: DEBUG in {}\n{cpu_state}", self.name);
-					}
+					logger.log_debug(cpu_state);
 				}
 				cpu::TickResult::InvalidOpcode => {
 					break Err(FailureReason::InvalidOpcode);
@@ -275,6 +271,104 @@ impl TestConfig {
 	}
 	fn set_name(&mut self, name: String) {
 		self.name = name;
+	}
+}
+
+struct Logger<'a> {
+	silence_all: bool,
+	silence_passing: bool,
+	rom_path: &'a str,
+	pass: u32,
+	failure: u32,
+}
+
+impl<'a> Logger<'a> {
+	fn new(silence_all: bool, silence_passing: bool, rom_path: &str) -> Logger<'_> {
+		Logger {
+			silence_all,
+			silence_passing,
+			rom_path,
+			pass: 0,
+			failure: 0,
+		}
+	}
+	fn make_test<'b>(&'b mut self, config: &'b TestConfig) -> TestLogger<'a, 'b> {
+		TestLogger {
+			logger: self,
+			name: &config.name,
+			enable_breakpoints: config.enable_breakpoints,
+		}
+	}
+	fn finish(self) -> bool {
+		// When in SILENCE_ALL only print the final message if a test failed.
+		if !self.silence_all || self.failure != 0 {
+			println!(
+				"{}: All tests complete. {}/{} passed.",
+				self.rom_path,
+				self.pass,
+				self.pass + self.failure
+			);
+		}
+		self.failure == 0
+	}
+}
+
+struct TestLogger<'a, 'b> {
+	logger: &'b mut Logger<'a>,
+	name: &'b String,
+	enable_breakpoints: bool,
+}
+
+impl<'a, 'b> TestLogger<'a, 'b> {
+	fn log_breakpoint<A: memory::AddressSpace>(&mut self, cpu_state: &cpu::State<A>) {
+		if self.enable_breakpoints {
+			println!(
+				"{}: BREAKPOINT in {} \n{cpu_state}",
+				self.logger.rom_path, self.name
+			);
+		}
+	}
+	fn log_debug<A: memory::AddressSpace>(&mut self, cpu_state: &cpu::State<A>) {
+		if self.enable_breakpoints {
+			println!(
+				"{}: DEBUG in {} \n{cpu_state}",
+				self.logger.rom_path, self.name
+			);
+		}
+	}
+	fn pass(self) {
+		if !self.logger.silence_passing {
+			println!(
+				"\x1B[92m{}: {} passed\x1B[0m",
+				self.logger.rom_path, self.name
+			);
+		}
+		self.logger.pass += 1;
+	}
+	fn failure<A: memory::AddressSpace>(
+		self,
+		failure_reason: &FailureReason,
+		cpu_state: &cpu::State<A>,
+	) {
+		println!(
+			"\x1B[91m{}: {} failed\x1B[0m:\n{}\n{}",
+			self.logger.rom_path,
+			self.name,
+			match failure_reason {
+				FailureReason::InvalidOpcode => "Invalid opcode",
+				FailureReason::Crash => "Crashed",
+				FailureReason::Timeout => "Timeout",
+			},
+			cpu_state
+		);
+		self.logger.failure += 1;
+	}
+	fn incorrect(self, msg: &str) {
+		print!(
+			"\x1B[91m{}: {} failed\x1B[0m:\n{}",
+			self.logger.rom_path, self.name, msg
+		);
+		self.logger.failure += 1;
 	}
 }
 
@@ -491,36 +585,27 @@ fn main() {
 	let symfile = symfile;
 
 	let tests = read_config(&config_text, &symfile);
-	let mut fail_count = 0;
+
+	let mut logger = Logger::new(
+		cli.silent >= SILENCE_ALL,
+		cli.silent >= SILENCE_PASSING,
+		&rom_path,
+	);
 
 	for test in &tests {
 		let mut cpu_state = cpu::State::new(address_space.clone());
+		let mut test_logger = logger.make_test(test);
 
-		match test.run(&mut cpu_state, &rom_path) {
+		match test.run(&mut cpu_state, &mut test_logger) {
 			TestResult::Pass => {
-				if cli.silent < SILENCE_PASSING {
-					println!("\x1B[92m{}: {} passed\x1B[0m", rom_path, test.name);
-				}
+				test_logger.pass();
 				continue;
 			}
 			TestResult::Incorrect(msg) => {
-				print!(
-					"\x1B[91m{}: {} failed\x1B[0m:\n{}",
-					rom_path, test.name, msg
-				);
+				test_logger.incorrect(&msg);
 			}
 			TestResult::Failure(failure_reason) => {
-				println!(
-					"\x1B[91m{}: {} failed\x1B[0m:\n{}\n{}",
-					rom_path,
-					test.name,
-					match failure_reason {
-						FailureReason::InvalidOpcode => "Invalid opcode",
-						FailureReason::Crash => "Crashed",
-						FailureReason::Timeout => "Timeout",
-					},
-					cpu_state
-				);
+				test_logger.failure(&failure_reason, &cpu_state);
 			}
 		}
 
@@ -534,20 +619,9 @@ fn main() {
 				Err(msg) => eprintln!("Failed to open {path}: {msg}"),
 			}
 		}
-		fail_count += 1;
 	}
 
-	// When in SILENCE_ALL only print the final message if a test failed.
-	if cli.silent < SILENCE_ALL || fail_count != 0 {
-		println!(
-			"{}: All tests complete. {}/{} passed.",
-			rom_path,
-			tests.len() - fail_count,
-			tests.len()
-		);
-	}
-
-	if fail_count > 0 {
+	if !logger.finish() {
 		exit(1);
 	}
 }
