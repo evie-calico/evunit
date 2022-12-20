@@ -322,7 +322,6 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 
 #[derive(PartialEq)]
 enum FailureReason {
-	None,
 	Crash,
 	InvalidOpcode,
 	Timeout,
@@ -404,11 +403,11 @@ fn main() {
 		cpu_state.write(cpu_state.sp - 2, 0xFF);
 		cpu_state.sp -= 2;
 
-		let failure_reason = loop {
+		let condition = loop {
 			match cpu_state.tick() {
 				cpu::TickResult::Ok => {}
-				cpu::TickResult::Halt => break FailureReason::None,
-				cpu::TickResult::Stop => break FailureReason::None,
+				cpu::TickResult::Halt => break Ok(()),
+				cpu::TickResult::Stop => break Ok(()),
 				cpu::TickResult::Break => {
 					if test.enable_breakpoints {
 						println!("{rom_path}: BREAKPOINT in {} \n{cpu_state}", test.name);
@@ -420,56 +419,61 @@ fn main() {
 					}
 				}
 				cpu::TickResult::InvalidOpcode => {
-					break FailureReason::InvalidOpcode;
+					break Err(FailureReason::InvalidOpcode);
 				}
 			}
 
 			if cpu_state.pc == 0xFFFF {
-				break FailureReason::None;
+				break Ok(());
 			}
 
 			if test.crash_addresses.contains(&cpu_state.pc) {
-				break FailureReason::Crash;
+				break Err(FailureReason::Crash);
 			}
 
 			if cpu_state.cycles_elapsed >= test.timeout {
-				break FailureReason::Timeout;
+				break Err(FailureReason::Timeout);
 			}
 		};
 
-		if failure_reason != FailureReason::None {
-			println!(
-				"\x1B[91m{}: {} failed\x1B[0m:\n{}\n{}",
-				rom_path,
-				test.name,
-				match failure_reason {
-					FailureReason::InvalidOpcode => "Invalid opcode",
-					FailureReason::Crash => "Crashed",
-					FailureReason::Timeout => "Timeout",
-					FailureReason::None => "",
-				},
-				cpu_state
-			);
-		} else if let Some(result) = &test.result {
-			match result.compare(&cpu_state) {
-				Ok(..) => {
+		match condition {
+			Err(failure_reason) => {
+				println!(
+					"\x1B[91m{}: {} failed\x1B[0m:\n{}\n{}",
+					rom_path,
+					test.name,
+					match failure_reason {
+						FailureReason::InvalidOpcode => "Invalid opcode",
+						FailureReason::Crash => "Crashed",
+						FailureReason::Timeout => "Timeout",
+					},
+					cpu_state
+				);
+			}
+			Ok(()) => {
+				let result = if let Some(result) = &test.result {
+					result
+				} else {
 					if cli.silent < SILENCE_PASSING {
 						println!("\x1B[92m{}: {} passed\x1B[0m", rom_path, test.name);
 					}
-					continue;
-				}
-				Err(msg) => {
-					print!(
-						"\x1B[91m{}: {} failed\x1B[0m:\n{}",
-						rom_path, test.name, msg
-					);
+					continue; // This continue skips failure handling.
+				};
+				match result.compare(&cpu_state) {
+					Ok(()) => {
+						if cli.silent < SILENCE_PASSING {
+							println!("\x1B[92m{}: {} passed\x1B[0m", rom_path, test.name);
+						}
+						continue;
+					}
+					Err(msg) => {
+						print!(
+							"\x1B[91m{}: {} failed\x1B[0m:\n{}",
+							rom_path, test.name, msg
+						);
+					}
 				}
 			}
-		} else {
-			if cli.silent < SILENCE_PASSING {
-				println!("\x1B[92m{}: {} passed\x1B[0m", rom_path, test.name);
-			}
-			continue; // This continue skips failure handling.
 		}
 
 		if let Some(ref dump_dir) = cli.dump_dir {
