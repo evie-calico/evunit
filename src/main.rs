@@ -300,21 +300,23 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 		exit(1);
 	});
 
-	if let toml::Value::Table(config) = toml_file {
-		for (key, value) in config.iter() {
-			if let toml::Value::Table(value) = value {
-				tests.push(global_config.clone());
-				let last_test = tests.last_mut().unwrap();
-				last_test.set_name(key.to_string());
-				for (key, value) in value.iter() {
-					parse_configuration(last_test, key, value, symfile);
-				}
-			} else {
-				parse_configuration(&mut global_config, key, value, symfile);
-			}
-		}
+	let config = if let toml::Value::Table(config) = toml_file {
+		config
 	} else {
-		eprintln!("TOML root is not a table (Please report this and provide the TOML file used.)");
+		panic!("TOML root is not a table (Please report this and provide the TOML file used.)");
+	};
+
+	for (key, value) in config {
+		if let toml::Value::Table(table) = value {
+			let mut test = global_config.clone();
+			test.set_name(key);
+			for (key, value) in table.iter() {
+				parse_configuration(&mut test, key, value, symfile);
+			}
+			tests.push(test);
+		} else {
+			parse_configuration(&mut global_config, &key, &value, symfile);
+		}
 	}
 
 	tests
