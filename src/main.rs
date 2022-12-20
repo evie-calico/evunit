@@ -356,12 +356,13 @@ fn main() {
 		exit(1);
 	});
 
-	let symfile = if let Some(symfile_path) = &cli.symfile {
+	let mut symfile = HashMap::new();
+	if let Some(symfile_path) = &cli.symfile {
 		let file = File::open(symfile_path).unwrap_or_else(|error| {
 			eprintln!("Failed to open {symfile_path}: {error}");
 			exit(1);
 		});
-		BufReader::new(file)
+		let symbols = BufReader::new(file)
 			.lines()
 			.map(|line| {
 				line.unwrap_or_else(|error| {
@@ -385,11 +386,10 @@ fn main() {
 			.filter_map(|(name, loc)| match loc {
 				gb_sym_file::Location::Banked(bank, addr) => Some((name, (bank, addr))),
 				_ => None,
-			})
-			.collect()
-	} else {
-		HashMap::new()
-	};
+			});
+		symfile.extend(symbols);
+	}
+	let symfile = symfile;
 
 	let tests = read_config(&config_text, &symfile);
 	let mut fail_count = 0;
