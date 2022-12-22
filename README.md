@@ -22,7 +22,7 @@ a = 3
 The values you can initialize are:
 - a, b, c, d, e, h, l (8-bit registers)
 - bc, de, hl, pc, sp (16-bit registers)
-- z.f, z.n, z.h, z.c (Boolean flags)
+- f.z, f.n, f.h, f.c (Boolean flags)
 
 You can assign an integer (or `true`/`false` for flags) to any of these (`0x` for hex), or a label if you have a symfile loaded.
 To determine which functions should run, you can assign a label to `pc`.
