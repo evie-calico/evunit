@@ -8,7 +8,7 @@ use gb_cpu_sim::cpu;
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{read_to_string, stdin, BufRead, BufReader, Read};
+use std::io::{stdin, BufRead, BufReader, Read};
 use std::process::exit;
 
 use crate::log::Logger;
@@ -180,7 +180,7 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 	for (key, value) in config {
 		if let toml::Value::Table(table) = value {
 			let mut test = global_config.clone();
-			test.set_name(key);
+			test.name = key;
 			for (key, value) in table.iter() {
 				parse_configuration(&mut test, key, value, symfile);
 			}
@@ -214,11 +214,14 @@ fn main() {
 		eprintln!("Failed to read {rom_path}: {error}");
 		exit(1);
 	});
-
-	let config_text = read_to_string(open_input(&config_path)).unwrap_or_else(|error| {
-		eprintln!("Failed to read {config_path}: {error}");
-		exit(1);
-	});
+	
+	let mut config_text = String::new();
+	open_input(&config_path)
+		.read_to_string(&mut config_text)
+		.unwrap_or_else(|error| {
+			eprintln!("Failed to read {config_path}: {error}");
+			exit(1);
+		});
 
 	let mut symfile = HashMap::new();
 	if let Some(symfile_path) = &cli.symfile {
@@ -253,7 +256,6 @@ fn main() {
 			});
 		symfile.extend(symbols);
 	}
-	let symfile = symfile;
 
 	let tests = read_config(&config_text, &symfile);
 

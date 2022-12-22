@@ -29,55 +29,30 @@ pub struct Registers {
 
 impl Registers {
 	pub fn configure<S: memory::AddressSpace>(&self, cpu: &mut cpu::State<S>) {
-		// Macros should be able to do something like this?
-		if let Some(value) = self.a {
-			cpu.a = value
+		macro_rules! optional_set {
+			($cfg:ident) => {
+				if let Some(value) = self.$cfg {
+					cpu.$cfg = value;
+				}
+			};
+			(f $cfg:ident) => {
+				paste! {
+					if let Some(value) = self.[<$cfg f>] {
+						 cpu.f.[<set_ $cfg>](value);
+					}
+				}
+			};
+			(set $cfg:ident) => {
+				if let Some(value) = self.$cfg {
+					paste! { cpu.[<set_ $cfg>](value); }
+				}
+			};
+			($($($i:ident)+),+) => { $( optional_set!($($i)+); )+ };
 		}
-		if let Some(value) = self.b {
-			cpu.b = value
-		}
-		if let Some(value) = self.c {
-			cpu.c = value
-		}
-		if let Some(value) = self.d {
-			cpu.d = value
-		}
-		if let Some(value) = self.e {
-			cpu.e = value
-		}
-		if let Some(value) = self.h {
-			cpu.h = value
-		}
-		if let Some(value) = self.l {
-			cpu.l = value
-		}
-		if let Some(value) = self.zf {
-			cpu.f.set_z(value)
-		}
-		if let Some(value) = self.nf {
-			cpu.f.set_n(value)
-		}
-		if let Some(value) = self.hf {
-			cpu.f.set_h(value)
-		}
-		if let Some(value) = self.cf {
-			cpu.f.set_c(value)
-		}
-		if let Some(value) = self.bc {
-			cpu.set_bc(value)
-		}
-		if let Some(value) = self.de {
-			cpu.set_de(value)
-		}
-		if let Some(value) = self.hl {
-			cpu.set_hl(value)
-		}
-		if let Some(value) = self.pc {
-			cpu.pc = value
-		}
-		if let Some(value) = self.sp {
-			cpu.sp = value
-		}
+
+		optional_set!(a, b, c, d, e, h, l);
+		optional_set!(f z, f n, f h, f c);
+		optional_set!(set bc, set de, set hl, pc, sp);
 	}
 
 	pub fn compare<S: memory::AddressSpace>(&self, cpu: &cpu::State<S>) -> Result<(), String> {

@@ -97,7 +97,4 @@ impl TestConfig {
 			result: None,
 		}
 	}
-	pub fn set_name(&mut self, name: String) {
-		self.name = name;
-	}
 }
