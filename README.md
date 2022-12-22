@@ -72,18 +72,21 @@ And you can always use `cat` to add a handwritten file into the mix.
 bash config.bash | cat config.toml - | evunit -c /dev/stdin bin/rom.gb
 ```
 
-## Terminating a test
-
-A test is complete when either a crash address is reached, the test times out, or `pc` is `0xFFFF`.
-By default, evunit pushes `0xFFFF` to the stack before running your test, meaning that in most scenarios a `ret` will end the test.
-When `0xFFFF` is successfully reached, evunit checks to see if the result matches what was expected.
-
-Note that in the future, the "completion" address (`0xFFFF`) will be configurable.
-
 ## Additional configuration options
 
 In addition to registers, there are a few other options you can configure.
 All of these can be configured globally as well as per-test.
+
+### caller
+
+Sets the caller address.
+This address is pushed to the stack when a test begins, allowing `ret` to end the test.
+
+```toml
+caller = "Main"
+```
+
+By default, `caller` is set to `0xFFFF`.
 
 ### crash
 
@@ -110,6 +113,17 @@ This configuration can only be used globally.
 enable-breakpoints = true
 enable-breakpoints = false
 ```
+
+### exit
+
+Marks an address as an "exit", causing the test to end if `pc` reaches it.
+The results will then be verified.
+
+```toml
+exit = "SomeFunction.exit"
+```
+
+An array of values can also be used.
 
 ### timeout
 

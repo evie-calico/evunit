@@ -7,6 +7,9 @@ sp = 0xE000
 # Or, by using an array, they can be overwritten.
 crash = ["crash", 0x0038]
 
+# You can define additional exits
+exit = [0x4000, 0xF000]
+
 [add-one]
 b = 1
 [add-one.result]
@@ -29,6 +32,9 @@ b = 42
 
 [debug]
 pc = "DebugTest"
+# You can also redefine the "caller" address (default is 0xFFFF)
+# This acts as an exit address.
+caller = "DebugTest.exit"
 
 [crash-test]
 pc = "CrashTest"

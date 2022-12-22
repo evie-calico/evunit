@@ -7,7 +7,9 @@ use crate::registers::Registers;
 pub struct TestConfig {
 	pub name: String,
 
+	pub caller_address: u16,
 	pub crash_addresses: Vec<u16>,
+	pub exit_addresses: Vec<u16>,
 	pub enable_breakpoints: bool,
 	pub timeout: usize,
 
@@ -39,8 +41,8 @@ impl TestConfig {
 		// Push the return address 0xFFFF onto the stack.
 		// If pc == 0xFFFF the test is complete.
 		// TODO: make the success address configurable.
-		cpu_state.write(cpu_state.sp - 1, 0xFF);
-		cpu_state.write(cpu_state.sp - 2, 0xFF);
+		cpu_state.write(cpu_state.sp - 1, (self.caller_address & 0xFF) as u8);
+		cpu_state.write(cpu_state.sp - 2, ((self.caller_address >> 8) & 0xFF) as u8);
 		cpu_state.sp -= 2;
 
 		let condition = loop {
@@ -59,7 +61,7 @@ impl TestConfig {
 				}
 			}
 
-			if cpu_state.pc == 0xFFFF {
+			if cpu_state.pc == self.caller_address || self.exit_addresses.contains(&cpu_state.pc) {
 				break Ok(());
 			}
 
@@ -90,6 +92,8 @@ impl TestConfig {
 	pub fn new(name: String) -> TestConfig {
 		TestConfig {
 			name,
+			caller_address: 0xFFFF,
+			exit_addresses: vec![],
 			crash_addresses: vec![],
 			enable_breakpoints: true,
 			timeout: 65536,
