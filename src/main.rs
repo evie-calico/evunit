@@ -240,10 +240,16 @@ fn main() {
 	let rom_path = cli.rom;
 	let config_path = cli.config;
 
-	let address_space = AddressSpace::open(open_input(&rom_path)).unwrap_or_else(|error| {
+	let mut rom = Vec::<u8>::new();
+	open_input(&rom_path).read_to_end(&mut rom).unwrap_or_else(|error| {
 		eprintln!("Failed to read {rom_path}: {error}");
 		exit(1);
 	});
+	if rom.len() < 0x4000 {
+		rom.resize(0x4000, 0xFF);
+	}
+
+	let address_space = AddressSpace::with(&rom);
 	
 	let mut config_text = String::new();
 	open_input(&config_path)

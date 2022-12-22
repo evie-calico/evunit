@@ -1,10 +1,10 @@
-use std::io::{Error, Read, Write};
+use std::io::{Error, Write};
 
 use gb_cpu_sim::memory;
 
 #[derive(Clone)]
-pub struct AddressSpace {
-	pub rom: Vec<u8>,
+pub struct AddressSpace<'a> {
+	pub rom: &'a Vec<u8>,
 	pub vram: [u8; 0x2000], // VRAM locking is not emulated as there is not PPU present.
 	pub sram: Vec<[u8; 0x2000]>,
 	pub wram: [u8; 0x1000 * 8],
@@ -13,7 +13,7 @@ pub struct AddressSpace {
 	                      // All MMIO registers are special-cased; many serve no function.
 }
 
-impl memory::AddressSpace for AddressSpace {
+impl memory::AddressSpace for AddressSpace<'_> {
 	fn read(&self, address: u16) -> u8 {
 		let address = address as usize;
 		match address {
@@ -33,20 +33,15 @@ impl memory::AddressSpace for AddressSpace {
 	}
 }
 
-impl AddressSpace {
-	pub fn open<R: Read>(mut file: R) -> Result<AddressSpace, Error> {
-		let mut rom = Vec::<u8>::new();
-		file.read_to_end(&mut rom)?;
-		if rom.len() < 0x4000 {
-			rom.resize(0x4000, 0xFF);
-		}
-		Ok(AddressSpace {
+impl AddressSpace<'_> {
+	pub fn with(rom: &Vec<u8>) -> AddressSpace {
+		AddressSpace {
 			rom,
 			vram: [0; 0x2000],
 			sram: vec![],
 			wram: [0; 0x1000 * 8],
 			oam: [0; 0x100],
-		})
+		}
 	}
 
 	pub fn dump<W: Write>(&self, mut file: W) -> Result<(), Error> {
