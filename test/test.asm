@@ -5,6 +5,8 @@ OpcodeTest:
 
 DebugTest:
 	ld d, d
+.exit
+	ld d, d
 	ret
 
 CrashTest:

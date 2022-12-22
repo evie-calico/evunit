@@ -85,6 +85,17 @@ Note that in the future, the "completion" address (`0xFFFF`) will be configurabl
 In addition to registers, there are a few other options you can configure.
 All of these can be configured globally as well as per-test.
 
+### caller
+
+Sets the caller address.
+This address is pushed to the stack when a test begins, allowing `ret` to end the test.
+
+```toml
+caller = "Main"
+```
+
+By default, `caller` is set to `0xFFFF`.
+
 ### crash
 
 Marks an address as a "crash", causing the test to fail if `pc` reaches it.
@@ -92,7 +103,12 @@ This is useful for crash handler functions such as `rst $38`
 
 ```toml
 crash = 0x38
-crash = "crash"
+```
+
+An array of values can also be used.
+
+```toml
+crash = [0x38, "crash"]
 ```
 
 ### enable-breakpoints
@@ -105,6 +121,17 @@ This configuration can only be used globally.
 enable-breakpoints = true
 enable-breakpoints = false
 ```
+
+### exit
+
+Marks an address as an "exit", causing the test to end if `pc` reaches it.
+The results will then be verified.
+
+```toml
+exit = "SomeFunction.exit"
+```
+
+An array of values can also be used.
 
 ### timeout
 
