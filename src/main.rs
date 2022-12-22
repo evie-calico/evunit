@@ -46,10 +46,13 @@ const SILENCE_ALL: u8 = 2; // Silences all output unless an error occurs.
 fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestConfig> {
 	fn parse_u8(value: &toml::Value, hint: &str) -> Option<u8> {
 		match value {
-			toml::Value::Integer(value) if -128 <= *value && *value < 256 => Some(*value as u8),
-			toml::Value::Integer(_) => {
-				eprintln!("Value of `{hint}` must be an 8-bit integer.");
-				None
+			toml::Value::Integer(value) => {
+				if -128 <= *value && *value < 256 {
+					Some(*value as u8)
+				} else {
+					eprintln!("Value of `{hint}` must be an 8-bit integer.");
+					None
+				}
 			}
 			_ => {
 				eprintln!("Value of `{hint}` must be an 8-bit integer.");
@@ -64,12 +67,13 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 		symfile: &HashMap<String, (u32, u16)>,
 	) -> Option<u16> {
 		match value {
-			toml::Value::Integer(value) if -32768 <= *value && *value < 65536 => {
-				Some(*value as u16)
-			}
-			toml::Value::Integer(_) => {
-				eprintln!("Value of `{hint}` must be a 16-bit integer.");
-				None
+			toml::Value::Integer(value) => {
+				if -32768 <= *value && *value < 65536 {
+					Some(*value as u16)
+				} else {
+					eprintln!("Value of `{hint}` must be a 16-bit integer.");
+					None
+				}
 			}
 			toml::Value::String(value) => {
 				if let Some((_, addr)) = symfile.get(value) {
@@ -87,12 +91,11 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 	}
 
 	fn parse_bool(value: &toml::Value, hint: &str) -> Option<bool> {
-		match value {
-			toml::Value::Boolean(value) => Some(*value),
-			_ => {
-				eprintln!("Value of `{hint}` must be a boolean.");
-				None
-			}
+		if let toml::Value::Boolean(value) = value {
+			Some(*value)
+		} else {
+			eprintln!("Value of `{hint}` must be a boolean.");
+			None
 		}
 	}
 
@@ -119,9 +122,18 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 			"hl" => test.initial.hl = parse_u16(value, key, symfile),
 			"pc" => test.initial.pc = parse_u16(value, key, symfile),
 			"sp" => test.initial.sp = parse_u16(value, key, symfile),
-			"crash" => {
-				if let Some(address) = parse_u16(value, key, symfile) {
-					test.crash_addresses.push(address);
+			"crash" => {			 
+				if let toml::Value::Integer(_) = value {
+					if let Some(address) = parse_u16(value, key, symfile) {
+						test.crash_addresses.push(address);
+					}
+				} else if let toml::Value::Array(addresses) = value {
+					test.crash_addresses.clear();
+					for i in addresses {
+						if let Some(address) = parse_u16(i, "crash", symfile) {
+							test.crash_addresses.push(address);
+						}
+					}
 				}
 			}
 			"enable-breakpoints" => test.enable_breakpoints = parse_bool(value, key).unwrap(),
