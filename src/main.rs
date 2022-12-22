@@ -128,7 +128,6 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 						test.crash_addresses.push(address);
 					}
 				} else if let toml::Value::Array(addresses) = value {
-					test.crash_addresses.clear();
 					for i in addresses {
 						if let Some(address) = parse_u16(i, "crash", symfile) {
 							test.crash_addresses.push(address);

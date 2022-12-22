@@ -92,7 +92,12 @@ This is useful for crash handler functions such as `rst $38`
 
 ```toml
 crash = 0x38
-crash = "crash"
+```
+
+An array of values can also be used.
+
+```toml
+crash = [0x38, "crash"]
 ```
 
 ### enable-breakpoints
