@@ -72,6 +72,14 @@ And you can always use `cat` to add a handwritten file into the mix.
 bash config.bash | cat config.toml - | evunit -c /dev/stdin bin/rom.gb
 ```
 
+## Terminating a test
+
+A test is complete when either a crash address is reached, the test times out, or `pc` is `0xFFFF`.
+By default, evunit pushes `0xFFFF` to the stack before running your test, meaning that in most scenarios a `ret` will end the test.
+When `0xFFFF` is successfully reached, evunit checks to see if the result matches what was expected.
+
+Note that in the future, the "completion" address (`0xFFFF`) will be configurable.
+
 ## Additional configuration options
 
 In addition to registers, there are a few other options you can configure.
