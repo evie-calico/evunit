@@ -59,8 +59,7 @@ done
 ```
 
 Then pipe this into evunit.
-evunit does supports opening `-` as stdin.
-This is guaranteed to work without issues.
+You can use `-` to read from stdin.
 
 ```
 bash config.bash | evunit -c - bin/rom.gb
