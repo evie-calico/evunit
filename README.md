@@ -59,17 +59,17 @@ done
 ```
 
 Then pipe this into evunit.
-Note that evunit does not currently support opening `-` as stdin, so `/dev/stdin` must be used instead.
+evunit does supports opening `-` as stdin.
 This is guaranteed to work without issues.
 
 ```
-bash config.bash | evunit -c /dev/stdin bin/rom.gb
+bash config.bash | evunit -c - bin/rom.gb
 ```
 
 And you can always use `cat` to add a handwritten file into the mix.
 
 ```
-bash config.bash | cat config.toml - | evunit -c /dev/stdin bin/rom.gb
+bash config.bash | cat config.toml - | evunit -c - bin/rom.gb
 ```
 
 ## Terminating a test
