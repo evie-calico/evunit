@@ -46,14 +46,7 @@ const SILENCE_ALL: u8 = 2; // Silences all output unless an error occurs.
 fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestConfig> {
 	fn parse_u8(value: &toml::Value, hint: &str) -> Option<u8> {
 		match value {
-			toml::Value::Integer(value) => {
-				if -128 <= *value && *value < 256 {
-					Some(*value as u8)
-				} else {
-					eprintln!("Value of `{hint}` must be an 8-bit integer.");
-					None
-				}
-			}
+			toml::Value::Integer(value) if -128 <= *value && *value < 256 => Some(*value as u8),
 			_ => {
 				eprintln!("Value of `{hint}` must be an 8-bit integer.");
 				None
@@ -123,37 +116,41 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 			"pc" => test.initial.pc = parse_u16(value, key, symfile),
 			"sp" => test.initial.sp = parse_u16(value, key, symfile),
 			"caller" => test.caller_address = parse_u16(value, key, symfile).unwrap_or(0xFFFF),
-			"crash" => {			 
-				if let toml::Value::Integer(_) = value {
+			"crash" => match value {
+				toml::Value::Integer(_) => {
 					if let Some(address) = parse_u16(value, key, symfile) {
 						test.crash_addresses.push(address);
 					}
-				} else if let toml::Value::Array(addresses) = value {
+				}
+				toml::Value::Array(addresses) => {
 					for i in addresses {
 						if let Some(address) = parse_u16(i, key, symfile) {
 							test.crash_addresses.push(address);
 						}
 					}
-				} else {
-					eprintln!("Value of {key} must be a 16-bit integer or an array of 16-bit integers")
 				}
-			}
+				_ => eprintln!(
+					"Value of {key} must be a 16-bit integer or an array of 16-bit integers"
+				),
+			},
 			"enable-breakpoints" => test.enable_breakpoints = parse_bool(value, key).unwrap(),
-			"exit" => {			 
-				if let toml::Value::Integer(_) = value {
+			"exit" => match value {
+				toml::Value::Integer(_) => {
 					if let Some(address) = parse_u16(value, key, symfile) {
 						test.exit_addresses.push(address);
 					}
-				} else if let toml::Value::Array(addresses) = value {
+				}
+				toml::Value::Array(addresses) => {
 					for i in addresses {
 						if let Some(address) = parse_u16(i, key, symfile) {
 							test.exit_addresses.push(address);
 						}
 					}
-				} else {
-					eprintln!("Value of {key} must be a 16-bit integer or an array of 16-bit integers")
 				}
-			}
+				_ => eprintln!(
+					"Value of {key} must be a 16-bit integer or an array of 16-bit integers"
+				),
+			},
 			"timeout" => {
 				if let toml::Value::Integer(value) = value {
 					test.timeout = *value as usize;
