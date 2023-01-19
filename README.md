@@ -3,9 +3,13 @@
 This is a unit testing application for Game Boy roms.
 It includes a CPU emulator, and loads test configurations from TOML files.
 
+[Changelog](./CHANGELOG.md)
+
 ## Configuring a test
 
-Within the test config you can create a heading for each test you want to run, and assign default and expected values for registers
+Within the test config you can create a heading for each test you want to run, and assign default and expected values for registers.
+The first heading (for example, `add-one`) determines the initial state, while the "`.result`" heading (for example, `add-one.result`) describes the expected result.
+If the expected result does not match the final state, the test will fail.
 
 ```toml
 [add-one]
@@ -19,13 +23,44 @@ b = 2
 a = 3
 ```
 
-The values you can initialize are:
-- a, b, c, d, e, h, l (8-bit registers)
-- bc, de, hl, pc, sp (16-bit registers)
-- f.z, f.n, f.h, f.c (Boolean flags)
+You can assign any cpu register to an integer.
+In addition, 16-bit registers may be assigned a quoted label if a symfile is loaded.
+To determine which function should run in each test, assign a label to `pc`.
+Possible registers are:
+- `a`
+- `b`
+- `c`
+- `d`
+- `e`
+- `h`
+- `l`
+- `bc`
+- `de`
+- `hl`
+- `pc`
+- `sp`
 
-You can assign an integer (or `true`/`false` for flags) to any of these (`0x` for hex), or a label if you have a symfile loaded.
-To determine which functions should run, you can assign a label to `pc`.
+In addition the flags can be assigned to either `true` or `false`.
+Possible flags are:
+- `f.z`
+- `f.n`
+- `f.h`
+- `f.c`
+
+Note that the flags must be *quoted* in the config file because of the dot:
+```toml
+"f.z" = false
+```
+
+Finally, memory can be assigned a value in the config file by surrounding a label name in square brackets.
+You can either assign an 8-bit integer, a string, or an array of either.
+Like the flags, memory addresses must be quoted because of the square brackets:
+```toml
+# Writes a string to wString, followed by a 0
+"[wString]" = ["Hello, world!", 0]
+```
+
+## Global configurations
 
 Sometimes you have configurations which should apply to all tests, like a global variable or the stack pointer.
 Any configurations at the top of the file (before a heading) are global and apply to all tests.
@@ -42,44 +77,42 @@ b = 42
 
 If the test result is absent, the test will always pass unless it crashes.
 
-Creating an exhaustive set of tests by hand might be tedious, so remember that you an always generate tests in a bash script or any other language of your choice.
+Creating an exhaustive set of tests by hand might be tedious, so remember that you an always generate tests in any language of your choice.
 
-```bash
-for i in {0..7}
-do
-	echo "
-[my-test$i]
-pc = \"GetBitA\"
-a = $i
-[my-test$i.result]
-a = $((1 << $i))
-"
-done
-"
+```rs
+fn main() {
+	for i in 0..8 {
+		println!("
+			[my-test{i}]
+			pc = \"GetBitA\"
+			a = {i}
+			[my-test{i}.result]
+			a = {}", 1 << i
+		);
+	}
+}
 ```
 
 Then pipe this into evunit.
 You can use `-` to read from stdin.
 
 ```
-bash config.bash | evunit -c - bin/rom.gb
+./config_generator | evunit -c - bin/rom.gb
 ```
 
 And you can always use `cat` to add a handwritten file into the mix.
 
 ```
-bash config.bash | cat config.toml - | evunit -c - bin/rom.gb
+./config_generator | cat config.toml - | evunit -c - bin/rom.gb
 ```
 
 ## Terminating a test
 
-A test is complete when either a crash address is reached, the test times out, or `pc` is `0xFFFF`.
-By default, evunit pushes `0xFFFF` to the stack before running your test, meaning that in most scenarios a `ret` will end the test.
-When `0xFFFF` is successfully reached, evunit checks to see if the result matches what was expected.
+A test is complete when either a crash address is reached, the test times out, or `pc` is equal to the `caller` specified in the config file (default is `0xFFFF`).
+evunit pushes the `caller` value to the stack before running your test, meaning that in most scenarios a `ret` will end the test.
+When the `caller` value is successfully reached, evunit checks to see if the result matches what was expected.
 
-Note that in the future, the "completion" address (`0xFFFF`) will be configurable.
-
-## Additional configuration options
+## Configuration options
 
 In addition to registers, there are a few other options you can configure.
 All of these can be configured globally as well as per-test.
