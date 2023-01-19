@@ -41,3 +41,15 @@ pc = "CrashTest"
 
 [timeout]
 pc = "Timeout"
+
+[variable]
+"[wVariable]" = 100
+pc = "VariableTest"
+[variable.result]
+a = 100
+
+[string]
+"[wString]" = ["Hello, world!", 0]
+pc = "StringTest"
+[string.result]
+"f.z" = true

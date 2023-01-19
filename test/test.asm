@@ -15,6 +15,32 @@ CrashTest:
 Timeout:
 	jr Timeout
 
+VariableTest:
+	ld a, [wVariable]
+	ret
+
+StringTest:
+	ld hl, wString
+	ld de, .string
+.loop
+	ld a, [de]
+	cp a, [hl]
+	ret nz
+	ld a, [hl]
+	and a, a
+	ret z
+	inc hl
+	inc de
+	jr .loop
+
+.string db "Hello, world!", 0
+
 SECTION "Crash", ROM0[$0038]
 crash:
 	jr crash
+
+SECTION "Memory", WRAM0
+wVariable:
+	db
+
+wString: ds strlen("Hello, world!") + 1

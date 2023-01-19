@@ -99,6 +99,71 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 		}
 	}
 
+	fn parse_memory(
+		value: &toml::Value,
+		symbol: &str, 
+		symfile: &HashMap<String, (u32, u16)>,
+		memory: &mut Vec<(u16, u8)>
+	) {
+		let addr = if let Some((_, addr)) = symfile.get(symbol) {
+			*addr
+		} else {
+			eprintln!("Symbol \"{symbol}\" not found.");
+			return;
+		};
+
+		parse_memory_at_addr(addr, value, symbol, symfile, memory);
+
+		fn parse_memory_at_addr(
+			mut addr: u16,
+			value: &toml::Value,
+			symbol: &str, 
+			symfile: &HashMap<String, (u32, u16)>,
+			memory: &mut Vec<(u16, u8)>
+		) -> u16 {
+			match value {
+				toml::Value::Integer(value) => {
+					if *value > 255 || *value < -128 {
+						let mut value_array = String::new();
+						let mut working_value = *value as u32;
+						loop {
+							// We can do at least one loop because the value has over 8 bits.
+							value_array += &(working_value & 0xFF).to_string();
+							working_value >>= 8;
+							if working_value == 0 { break; }
+							value_array += ", ";
+						}
+						eprintln!("{symbol}'s value ({value}) is not 8-bit. Try `\"{symbol}\" = [{value_array}]` instead.");
+					} else {
+						memory.push((addr, *value as u8));
+					}
+					addr + 1
+				}
+				toml::Value::String(value) => {
+					for i in value.bytes() {
+						memory.push((addr, i));
+						addr += 1;
+					}
+					addr
+				}
+				toml::Value::Array(value) => {
+					for i in value {
+						addr = parse_memory_at_addr(addr, i, symbol, symfile, memory);
+					}
+					addr
+				}
+				toml::Value::Boolean(value) => {
+					memory.push((addr, *value as u8));
+					addr + 1
+				}
+				_ => {
+					eprintln!("Unsupported value for {symbol}: {value}");
+					addr
+				}
+			}
+		}
+	}
+
 	fn parse_configuration(
 		test: &mut TestConfig,
 		key: &str,
@@ -182,7 +247,15 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 							"hl" => result.hl = parse_u16(value, key, symfile),
 							"pc" => result.pc = parse_u16(value, key, symfile),
 							"sp" => result.sp = parse_u16(value, key, symfile),
-							&_ => println!("Unknown config {key} = {value:?}"),
+							&_ => {
+								let mut indices = key.char_indices();
+								if let (Some((_, '[')), Some((begin, _)), Some((end, ']')))
+								= (indices.next(), indices.next(), indices.last()) {
+									parse_memory(value, &key[begin..end].to_string(), symfile, &mut result.memory);
+								} else {
+									eprintln!("Unknown config key {key} = {value:?}");
+								}
+							}
 						}
 					}
 					test.result = Some(result);
@@ -190,7 +263,15 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 					eprintln!("Value of `{key}` must be a table.");
 				}
 			}
-			_ => println!("Unknown config {key} = {value:?}"),
+			_ => {
+				let mut indices = key.char_indices();
+				if let (Some((_, '[')), Some((begin, _)), Some((end, ']')))
+				= (indices.next(), indices.next(), indices.last()) {
+					parse_memory(value, &key[begin..end].to_string(), symfile, &mut test.initial.memory);
+				} else {
+					eprintln!("Unknown config key {key} = {value:?}");
+				}
+			}
 		}
 	}
 

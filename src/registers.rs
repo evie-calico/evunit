@@ -25,6 +25,11 @@ pub struct Registers {
 	pub hl: Option<u16>,
 	pub pc: Option<u16>,
 	pub sp: Option<u16>,
+
+	// Each byte in memory may have a value.
+	// For very very large configs this may have a higher memory usage.
+	// If this becomes a problem, consider moving AddressSpace here.
+	pub memory: Vec<(u16, u8)>,
 }
 
 impl Registers {
@@ -53,6 +58,10 @@ impl Registers {
 		optional_set!(a, b, c, d, e, h, l);
 		optional_set!(f z, f n, f h, f c);
 		optional_set!(set bc, set de, set hl, pc, sp);
+
+		for (addr, value) in &self.memory {
+			cpu.address_space.write(*addr, *value);
+		}
 	}
 
 	pub fn compare<S: memory::AddressSpace>(&self, cpu: &cpu::State<S>) -> Result<(), String> {
@@ -114,6 +123,7 @@ impl Registers {
 			hl: None,
 			pc: None,
 			sp: None,
+			memory: Vec::new(),
 		}
 	}
 }
