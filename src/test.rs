@@ -17,12 +17,6 @@ pub struct TestConfig {
 	pub result: Option<Registers>,
 }
 
-pub enum TestResult {
-	Pass,
-	Incorrect(String),
-	Failure(FailureReason),
-}
-
 #[derive(PartialEq, Eq)]
 pub enum FailureReason {
 	Crash,
@@ -35,12 +29,10 @@ impl TestConfig {
 		&self,
 		cpu_state: &mut cpu::State<A>,
 		logger: &mut TestLogger<'_, '_>,
-	) -> TestResult {
+	) -> bool {
 		self.initial.configure(cpu_state);
 
-		// Push the return address 0xFFFF onto the stack.
-		// If pc == 0xFFFF the test is complete.
-		// TODO: make the success address configurable.
+		// Push the return address onto the stack.
 		cpu_state.write(cpu_state.sp - 1, (self.caller_address & 0xFF) as u8);
 		cpu_state.write(cpu_state.sp - 2, ((self.caller_address >> 8) & 0xFF) as u8);
 		cpu_state.sp -= 2;
@@ -75,15 +67,25 @@ impl TestConfig {
 		};
 
 		match condition {
-			Err(failure_reason) => TestResult::Failure(failure_reason),
+			Err(failure_reason) => {
+				logger.failure(&failure_reason, &cpu_state);
+				false
+			}
 			Ok(()) => {
 				if let Some(result) = &self.result {
 					match result.compare(cpu_state) {
-						Ok(()) => TestResult::Pass,
-						Err(msg) => TestResult::Incorrect(msg),
+						Ok(()) => {
+							logger.pass();
+							true
+						},
+						Err(msg) => {
+							logger.incorrect(&msg);
+							false
+						}
 					}
 				} else {
-					TestResult::Pass
+					logger.pass();
+					true
 				}
 			}
 		}
