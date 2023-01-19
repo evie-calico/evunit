@@ -68,11 +68,7 @@ impl Registers {
 		let mut err_msg = String::from("");
 
 		fn add_err<T: std::fmt::Display>(err_msg: &mut String, hint: &str, result: T, expected: T) {
-			*err_msg += format!(
-				"{} ({}) does not match expected value ({})\n",
-				hint, result, expected
-			)
-			.as_str();
+			*err_msg += &format!("{hint} ({result}) does not match expected value ({expected})\n");
 		}
 
 		macro_rules! check {
@@ -97,6 +93,13 @@ impl Registers {
 		check!(a, b, c, d, e, h, l);
 		check!(f z, f n, f h, f c);
 		check!(get bc, get de, get hl, sp, pc);
+
+		for (addr, value) in &self.memory {
+			let result = cpu.address_space.read(*addr);
+			if result != *value {
+				err_msg += &format!("[${addr:X}] ({result}) does not match expected value ({value})\n");
+			}
+		}
 
 		if err_msg.is_empty() {
 			Ok(())

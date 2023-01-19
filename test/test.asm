@@ -17,6 +17,8 @@ Timeout:
 
 VariableTest:
 	ld a, [wVariable]
+	add a, a
+	ld [wVariable], a
 	ret
 
 StringTest:
