@@ -186,7 +186,7 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 			"sp" => test.initial.sp = parse_u16(value, key, symfile),
 			"caller" => test.caller_address = parse_u16(value, key, symfile).unwrap_or(0xFFFF),
 			"crash" => {			 
-				if let toml::Value::Integer(_) = value {
+				if let toml::Value::Integer(_) | toml::Value::String(_) = value {
 					if let Some(address) = parse_u16(value, key, symfile) {
 						test.crash_addresses.push(address);
 					}
@@ -202,7 +202,7 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 			}
 			"enable-breakpoints" => test.enable_breakpoints = parse_bool(value, key).unwrap(),
 			"exit" => {			 
-				if let toml::Value::Integer(_) = value {
+				if let toml::Value::Integer(_) | toml::Value::String(_) = value {
 					if let Some(address) = parse_u16(value, key, symfile) {
 						test.exit_addresses.push(address);
 					}
