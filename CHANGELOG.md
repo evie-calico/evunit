@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1 (January 29th, 2023)
+
+Fixed:
+- `crash` and `exit` now accept a single label once again.
+
 ## 1.1.0 (January 19th, 2023)
 
 New:
