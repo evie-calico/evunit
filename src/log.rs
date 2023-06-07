@@ -2,6 +2,7 @@ use gb_cpu_sim::{cpu, memory};
 
 use crate::test::{FailureReason, TestConfig};
 
+pub const SILENCE_NONE: u8 = 0;
 pub const SILENCE_PASSING: u8 = 1; // Silences passing messages when tests succeed.
 pub const SILENCE_ALL: u8 = 2; // Silences all output unless an error occurs.
 

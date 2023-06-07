@@ -19,10 +19,11 @@ pub struct Registers {
 	pub nf: Option<bool>,
 	pub hf: Option<bool>,
 	pub cf: Option<bool>,
-
+	// TODO: These 16-bit registers make sense in the config file, but should they be part of this struct?
 	pub bc: Option<u16>,
 	pub de: Option<u16>,
 	pub hl: Option<u16>,
+
 	pub pc: Option<u16>,
 	pub sp: Option<u16>,
 

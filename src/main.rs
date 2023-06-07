@@ -4,17 +4,16 @@ mod registers;
 mod test;
 
 use clap::Parser;
-use gb_cpu_sim::cpu;
-
+use evunit::cpu;
+use evunit::log::Logger;
+use evunit::memory::AddressSpace;
+use evunit::open_rom;
+use evunit::registers::Registers;
+use evunit::test::TestConfig;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{stdin, BufRead, BufReader, Read};
 use std::process::exit;
-
-use crate::log::Logger;
-use crate::memory::AddressSpace;
-use crate::registers::Registers;
-use crate::test::TestConfig;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -355,14 +354,7 @@ fn main() {
 	let rom_path = cli.rom;
 	let config_path = cli.config;
 
-	let mut rom = Vec::<u8>::new();
-	open_input(&rom_path).read_to_end(&mut rom).unwrap_or_else(|error| {
-		eprintln!("Failed to read {rom_path}: {error}");
-		exit(1);
-	});
-	if rom.len() < 0x4000 {
-		rom.resize(0x4000, 0xFF);
-	}
+	let rom = open_rom(&rom_path);
 
 	let address_space = AddressSpace::with(&rom);
 	

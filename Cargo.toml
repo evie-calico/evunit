@@ -1,6 +1,6 @@
 [package]
 name = "evunit"
-version = "1.1.1"
+version = "1.2.0"
 description = "A unit testing program for the Game Boy"
 license = "MIT"
 homepage = "https://github.com/eievui5/evunit"
@@ -14,8 +14,6 @@ edition = "2021"
 toml = { version = "0.5.9", features = ["preserve_order"] }
 clap = { version = "3.2.17", features = ["derive"] }
 paste = "1.0.9"
-thiserror = "1.0.37"
-try-from-discrim = "1.0.0"
 gb-cpu-sim = "1.0.0"
 gb-sym-file = "1.0.1"
 

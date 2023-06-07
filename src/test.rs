@@ -5,15 +5,26 @@ use crate::registers::Registers;
 
 #[derive(Debug, Clone)]
 pub struct TestConfig {
+	/// Test name. Important for diagnosing which test has failed.
 	pub name: String,
 
+	/// The address from which the test function is "called".
+	/// Used to determine when a test should end.
 	pub caller_address: u16,
+	/// List of addresses considered to be the result of a crash.
+	/// For example, 0x0038 is a common crash handler and a test that reaches it has likely failed.
 	pub crash_addresses: Vec<u16>,
+	/// List of addresses considered to be a successful exit.
+	/// This is important if your test does not use the `ret` opcode to exit.
 	pub exit_addresses: Vec<u16>,
+	/// Enables printing of debug info on `ld b, b` and `ld d, d` opcodes.
 	pub enable_breakpoints: bool,
+	/// The test will automatically fail after this many cycles.
 	pub timeout: usize,
 
+	/// The initial state of the CPU's registers
 	pub initial: Registers,
+	/// The final expected state of the CPU, if any.
 	pub result: Option<Registers>,
 }
 
@@ -25,6 +36,19 @@ pub enum FailureReason {
 }
 
 impl TestConfig {
+	pub fn new(name: String) -> TestConfig {
+		TestConfig {
+			name,
+			caller_address: 0xFFFF,
+			exit_addresses: vec![],
+			crash_addresses: vec![],
+			enable_breakpoints: true,
+			timeout: 65536,
+			initial: Registers::new(),
+			result: None,
+		}
+	}
+
 	pub fn run<A: memory::AddressSpace>(
 		&self,
 		cpu_state: &mut cpu::State<A>,
@@ -88,19 +112,6 @@ impl TestConfig {
 					true
 				}
 			}
-		}
-	}
-
-	pub fn new(name: String) -> TestConfig {
-		TestConfig {
-			name,
-			caller_address: 0xFFFF,
-			exit_addresses: vec![],
-			crash_addresses: vec![],
-			enable_breakpoints: true,
-			timeout: 65536,
-			initial: Registers::new(),
-			result: None,
 		}
 	}
 }
