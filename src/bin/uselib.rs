@@ -1,38 +1,32 @@
 // Example of how evunit can be used as a rust library rather than a command line app.
 
-use evunit::cpu::State as CpuState;
-use evunit::log::Logger;
-use evunit::log::SILENCE_NONE;
-use evunit::memory::AddressSpace;
-use evunit::open_rom;
+use evunit::log::SilenceLevel;
+use evunit::run_tests;
 use evunit::registers::Registers;
 use evunit::test::TestConfig;
 use std::process::exit;
 
 fn main() {
-	let mut test = TestConfig::new(String::from("Test 0"));
-	// Initial state
-	test.initial.a = Some(1);
-	test.initial.b = Some(2);
-	// Expected state
-	let mut result = Registers::new();
-	result.a = Some(3);
-	test.result = Some(result);
+	let mut tests = Vec::new();
 
-	// Load the ROM
-	let rom_path = "test/test.gb";
-	let rom = open_rom(rom_path);
-	let address_space = AddressSpace::with(&rom);
+	for a in 0..=128 { for b in 0..=127 {
+		let mut test = TestConfig::new(format!("Test {a} + {b}"));
 
-	// Prepare test
-	let mut cpu = CpuState::new(address_space);
-	let mut logger = Logger::new(SILENCE_NONE, rom_path);
-	let mut test_logger = logger.make_test(&test);
+		// Initial state
+		test.initial = Registers::new()
+			.with_a(a)
+			.with_b(b);
 
-	// Run and exit
-	test.run(&mut cpu, &mut test_logger);
+		// Expected state
+		test.result = Some(Registers::new()
+			.with_a(a + b));
 
-	if !logger.finish() {
+		tests.push(test);
+	}}
+
+	let result = run_tests("test/test.gb", &tests, SilenceLevel::Passing);
+
+	if result.is_err() {
 		exit(1);
 	}
 }

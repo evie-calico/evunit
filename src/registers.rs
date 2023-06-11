@@ -33,6 +33,17 @@ pub struct Registers {
 	pub memory: Vec<(u16, u8)>,
 }
 
+macro_rules! impl_with {
+	($reg:ident : $type:ty) => {
+		paste! {
+			pub fn [<with_ $reg>](mut self, value: $type) -> Self {
+				self.$reg = Some(value);
+				self
+			}
+		}
+	}
+}
+
 impl Registers {
 	pub fn configure<S: memory::AddressSpace>(&self, cpu: &mut cpu::State<S>) {
 		macro_rules! optional_set {
@@ -109,8 +120,8 @@ impl Registers {
 		}
 	}
 
-	pub fn new() -> Registers {
-		Registers {
+	pub fn new() -> Self {
+		Self {
 			a: None,
 			b: None,
 			c: None,
@@ -130,4 +141,21 @@ impl Registers {
 			memory: Vec::new(),
 		}
 	}
+
+	impl_with!(a: u8);
+	impl_with!(b: u8);
+	impl_with!(c: u8);
+	impl_with!(d: u8);
+	impl_with!(e: u8);
+	impl_with!(h: u8);
+	impl_with!(l: u8);
+	impl_with!(zf: bool);
+	impl_with!(nf: bool);
+	impl_with!(hf: bool);
+	impl_with!(cf: bool);
+	impl_with!(bc: u16);
+	impl_with!(de: u16);
+	impl_with!(hl: u16);
+	impl_with!(pc: u16);
+	impl_with!(sp: u16);
 }

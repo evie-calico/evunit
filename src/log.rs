@@ -2,9 +2,11 @@ use gb_cpu_sim::{cpu, memory};
 
 use crate::test::{FailureReason, TestConfig};
 
-pub const SILENCE_NONE: u8 = 0;
-pub const SILENCE_PASSING: u8 = 1; // Silences passing messages when tests succeed.
-pub const SILENCE_ALL: u8 = 2; // Silences all output unless an error occurs.
+pub enum SilenceLevel {
+	None,
+	Passing, // Silences passing messages when tests succeed.
+	All, // Silences all output unless an error occurs.
+}
 
 /// Tracks and prints test results.
 pub struct Logger<'a> {
@@ -22,10 +24,16 @@ pub struct TestLogger<'a, 'b> {
 }
 
 impl<'a> Logger<'a> {
-	pub fn new(silence_level: u8, rom_path: &str) -> Logger<'_> {
+	pub fn new(silence_level: SilenceLevel, rom_path: &str) -> Logger<'_> {
+		let (silence_all, silence_passing) = match silence_level {
+			SilenceLevel::None => (false, false),
+			SilenceLevel::Passing => (false, true),
+			SilenceLevel::All => (true, true),
+		};
+
 		Logger {
-			silence_all: silence_level >= SILENCE_ALL,
-			silence_passing: silence_level >= SILENCE_PASSING,
+			silence_all,
+			silence_passing,
 			rom_path,
 			pass: 0,
 			failure: 0,

@@ -4,16 +4,19 @@ mod registers;
 mod test;
 
 use clap::Parser;
-use evunit::cpu;
-use evunit::log::Logger;
+use evunit::{cpu, open_rom, read_symfile};
+use evunit::log::{Logger, SilenceLevel};
 use evunit::memory::AddressSpace;
-use evunit::open_rom;
 use evunit::registers::Registers;
 use evunit::test::TestConfig;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{stdin, BufRead, BufReader, Read};
+use std::io::{stdin, BufReader, Read};
 use std::process::exit;
+
+pub const SILENCE_NONE: u8 = 0;
+pub const SILENCE_PASSING: u8 = 1; // Silences passing messages when tests succeed.
+pub const SILENCE_ALL: u8 = 2; // Silences all output unless an error occurs.
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -300,43 +303,6 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 	tests
 }
 
-fn read_symfile(path: &Option<String>) -> HashMap<String, (u32, u16)> {
-	let mut symfile = HashMap::new();
-	if let Some(symfile_path) = &path {
-		let file = File::open(symfile_path).unwrap_or_else(|error| {
-			eprintln!("Failed to open {symfile_path}: {error}");
-			exit(1);
-		});
-		let symbols = BufReader::new(file)
-			.lines()
-			.map(|line| {
-				line.unwrap_or_else(|error| {
-					eprintln!("Error reading {symfile_path}: {error}");
-					exit(1);
-				})
-			})
-			.enumerate()
-			.filter_map(|(n, line)| {
-				gb_sym_file::parse_line(&line).map(|parse_result| {
-					parse_result.unwrap_or_else(|parse_error| {
-						eprintln!(
-							"Failed to parse {symfile_path} line {}: {parse_error}",
-							n + 1
-						);
-						exit(1);
-					})
-				})
-			})
-			// We are only interested in banked symbols
-			.filter_map(|(name, loc)| match loc {
-				gb_sym_file::Location::Banked(bank, addr) => Some((name, (bank, addr))),
-				_ => None,
-			});
-		symfile.extend(symbols);
-	}
-	symfile
-}
-
 fn main() {
 	fn open_input(path: &str) -> Box<dyn Read> {
 		if path == "-" {
@@ -369,7 +335,13 @@ fn main() {
 	let symfile = read_symfile(&cli.symfile);
 	let tests = read_config(&config_text, &symfile);
 
-	let mut logger = Logger::new(cli.silent, &rom_path);
+	let silence_level = match cli.silent {
+		SILENCE_NONE => SilenceLevel::None,
+		SILENCE_PASSING => SilenceLevel::Passing,
+		SILENCE_ALL.. => SilenceLevel::All,
+	};
+
+	let mut logger = Logger::new(silence_level, &rom_path);
 
 	for test in &tests {
 		let mut cpu_state = cpu::State::new(address_space.clone());
