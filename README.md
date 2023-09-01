@@ -5,6 +5,10 @@ It includes a CPU emulator, and loads test configurations from TOML files.
 
 [Changelog](./CHANGELOG.md)
 
+## Installing
+
+`cargo install evunit`
+
 ## Configuring a test
 
 Within the test config you can create a heading for each test you want to run, and assign default and expected values for registers.
