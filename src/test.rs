@@ -4,6 +4,9 @@ use crate::log::TestLogger;
 use crate::registers::Registers;
 
 #[derive(Debug, Clone)]
+// Necessary for backwards compat.
+// TODO: Correct this for next major release.
+#[allow(clippy::module_name_repetitions)]
 pub struct TestConfig {
 	/// Test name. Important for diagnosing which test has failed.
 	pub name: String,
@@ -36,8 +39,9 @@ pub enum FailureReason {
 }
 
 impl TestConfig {
-	pub fn new(name: String) -> TestConfig {
-		TestConfig {
+	#[must_use]
+	pub fn new(name: String) -> Self {
+		Self {
 			name,
 			caller_address: 0xFFFF,
 			exit_addresses: vec![],
@@ -64,8 +68,7 @@ impl TestConfig {
 		let condition = loop {
 			match cpu_state.tick() {
 				cpu::TickResult::Ok => {}
-				cpu::TickResult::Halt => break Ok(()),
-				cpu::TickResult::Stop => break Ok(()),
+				cpu::TickResult::Halt | cpu::TickResult::Stop => break Ok(()),
 				cpu::TickResult::Break => {
 					logger.log_breakpoint(cpu_state);
 				}
@@ -92,7 +95,7 @@ impl TestConfig {
 
 		match condition {
 			Err(failure_reason) => {
-				logger.failure(&failure_reason, &cpu_state);
+				logger.failure(&failure_reason, cpu_state);
 				false
 			}
 			Ok(()) => {
@@ -101,7 +104,7 @@ impl TestConfig {
 						Ok(()) => {
 							logger.pass();
 							true
-						},
+						}
 						Err(msg) => {
 							logger.incorrect(&msg);
 							false

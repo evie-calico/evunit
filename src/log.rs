@@ -1,11 +1,14 @@
+use crate::Error;
 use gb_cpu_sim::{cpu, memory};
 
 use crate::test::{FailureReason, TestConfig};
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum SilenceLevel {
+	#[default]
 	None,
 	Passing, // Silences passing messages when tests succeed.
-	All, // Silences all output unless an error occurs.
+	All,     // Silences all output unless an error occurs.
 }
 
 /// Tracks and prints test results.
@@ -13,8 +16,8 @@ pub struct Logger<'a> {
 	silence_all: bool,
 	silence_passing: bool,
 	rom_path: &'a str,
-	pass: u32,
-	failure: u32,
+	pub pass: u32,
+	pub failure: u32,
 }
 
 pub struct TestLogger<'a, 'b> {
@@ -24,7 +27,8 @@ pub struct TestLogger<'a, 'b> {
 }
 
 impl<'a> Logger<'a> {
-	pub fn new(silence_level: SilenceLevel, rom_path: &str) -> Logger<'_> {
+	#[must_use]
+	pub fn new(silence_level: SilenceLevel, rom_path: &'a str) -> Logger<'a> {
 		let (silence_all, silence_passing) = match silence_level {
 			SilenceLevel::None => (false, false),
 			SilenceLevel::Passing => (false, true),
@@ -46,7 +50,8 @@ impl<'a> Logger<'a> {
 			enable_breakpoints: config.enable_breakpoints,
 		}
 	}
-	pub fn finish(self) -> bool {
+	#[must_use]
+	pub fn finish(&self) -> bool {
 		// When in SILENCE_ALL only print the final message if a test failed.
 		if !self.silence_all || self.failure != 0 {
 			println!(
@@ -104,10 +109,10 @@ impl<'a, 'b> TestLogger<'a, 'b> {
 		);
 		self.logger.failure += 1;
 	}
-	pub fn incorrect(&mut self, msg: &str) {
+	pub fn incorrect(&mut self, msg: &Error) {
 		print!(
-			"\x1B[91m{}: {} failed\x1B[0m:\n{}",
-			self.logger.rom_path, self.name, msg
+			"\x1B[91m{}: {} failed\x1B[0m:\n{msg}",
+			self.logger.rom_path, self.name,
 		);
 		self.logger.failure += 1;
 	}

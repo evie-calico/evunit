@@ -1,6 +1,5 @@
-use std::io::{Error, Write};
-
 use gb_cpu_sim::memory;
+use std::io::{Error, Write};
 
 #[derive(Clone)]
 pub struct AddressSpace<'a> {
@@ -34,6 +33,7 @@ impl memory::AddressSpace for AddressSpace<'_> {
 }
 
 impl AddressSpace<'_> {
+	#[must_use]
 	pub fn with(rom: &Vec<u8>) -> AddressSpace {
 		AddressSpace {
 			rom,
@@ -44,8 +44,13 @@ impl AddressSpace<'_> {
 		}
 	}
 
+	/// Dumps the contents of memory to a buffer.
+	///
+	/// # Errors
+	///
+	/// Fails if the buffer could not be written to.
 	pub fn dump<W: Write>(&self, mut file: W) -> Result<(), Error> {
-		let mut output = String::from("");
+		let mut output = String::new();
 
 		let mut address = 0x8000;
 		output += "[VRAM]";

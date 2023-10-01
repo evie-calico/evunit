@@ -1,7 +1,11 @@
 # evunit
 
 This is a unit testing application for Game Boy roms.
-It includes a CPU emulator, and loads test configurations from TOML files.
+It only contains a CPU emulator; no PPU, memory mapper, or I/O.
+By using real binaries as input, you can run unit tests on your finished ROM without any need to rebuild.
+
+The command-line tool loads test configurations from TOML files.
+You can also use it as a Rust library, and configure your tests from Rust code.
 
 [Changelog](./CHANGELOG.md)
 
@@ -81,32 +85,50 @@ b = 42
 
 If the test result is absent, the test will always pass unless it crashes.
 
-Creating an exhaustive set of tests by hand might be tedious, so remember that you an always generate tests in any language of your choice.
+Creating an exhaustive set of tests by hand might be tedious, so remember that you an always generate tests in Rust by using `evunit` as a library:.
 
-```rs
-fn main() {
-	for i in 0..8 {
-		println!("
-			[my-test{i}]
-			pc = \"GetBitA\"
-			a = {i}
-			[my-test{i}.result]
-			a = {}", 1 << i
-		);
-	}
+```rust,ignore
+use evunit::prelude::*;
+use std::{path::Path, process::exit};
+
+let rom = "bin.gb";
+let sym = Some(Path::new("bin.sym"));
+let symfile = read_symfile(sym);
+
+let mut tests = Vec::new();
+
+for i in 0..8 {
+	let mut test = TestConfig::new(format!("my-test{i}"));
+
+	// Initial state
+	test.initial = Registers::new()
+		.with_pc(symfile["GetBitA"].0 as u16)
+		.with_a(i);
+
+	// Expected state
+	test.result = Some(Registers::new()
+		.with_a(i));
+
+	tests.push(test);
+}
+
+let result = run_tests(&rom, &tests, SilenceLevel::Passing);
+
+if result.is_err() {
+	exit(1);
 }
 ```
 
 Then pipe this into evunit.
 You can use `-` to read from stdin.
 
-```
+```sh
 ./config_generator | evunit -c - bin/rom.gb
 ```
 
 And you can always use `cat` to add a handwritten file into the mix.
 
-```
+```sh
 ./config_generator | cat config.toml - | evunit -c - bin/rom.gb
 ```
 
@@ -191,7 +213,7 @@ evunit -c fail.toml -d dump/ rom.gb
 
 The dump is simply a giant list of bytes, with headers for each memory type:
 
-```
+```not_rust
 [WRAM 0]
 0xc000: 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0
 0xc010: 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0

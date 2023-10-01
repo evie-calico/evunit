@@ -1,14 +1,5 @@
-mod log;
-mod memory;
-mod registers;
-mod test;
-
 use clap::Parser;
-use evunit::{cpu, open_rom, read_symfile};
-use evunit::log::{Logger, SilenceLevel};
-use evunit::memory::AddressSpace;
-use evunit::registers::Registers;
-use evunit::test::TestConfig;
+use evunit::prelude::*;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{stdin, BufReader, Read};
@@ -100,9 +91,9 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 
 	fn parse_memory(
 		value: &toml::Value,
-		symbol: &str, 
+		symbol: &str,
 		symfile: &HashMap<String, (u32, u16)>,
-		memory: &mut Vec<(u16, u8)>
+		memory: &mut Vec<(u16, u8)>,
 	) {
 		let addr = if let Some((_, addr)) = symfile.get(symbol) {
 			*addr
@@ -116,9 +107,9 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 		fn parse_memory_at_addr(
 			mut addr: u16,
 			value: &toml::Value,
-			symbol: &str, 
-			symfile: &HashMap<String, (u32, u16)>,
-			memory: &mut Vec<(u16, u8)>
+			symbol: &str,
+			_symfile: &HashMap<String, (u32, u16)>,
+			memory: &mut Vec<(u16, u8)>,
 		) -> u16 {
 			match value {
 				toml::Value::Integer(value) => {
@@ -129,7 +120,9 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 							// We can do at least one loop because the value has over 8 bits.
 							value_array += &(working_value & 0xFF).to_string();
 							working_value >>= 8;
-							if working_value == 0 { break; }
+							if working_value == 0 {
+								break;
+							}
 							value_array += ", ";
 						}
 						eprintln!("{symbol}'s value ({value}) is not 8-bit. Try `\"{symbol}\" = [{value_array}]` instead.");
@@ -147,7 +140,7 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 				}
 				toml::Value::Array(value) => {
 					for i in value {
-						addr = parse_memory_at_addr(addr, i, symbol, symfile, memory);
+						addr = parse_memory_at_addr(addr, i, symbol, _symfile, memory);
 					}
 					addr
 				}
@@ -187,7 +180,7 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 			"pc" => test.initial.pc = parse_u16(value, key, symfile),
 			"sp" => test.initial.sp = parse_u16(value, key, symfile),
 			"caller" => test.caller_address = parse_u16(value, key, symfile).unwrap_or(0xFFFF),
-			"crash" => {			 
+			"crash" => {
 				if let toml::Value::Integer(_) | toml::Value::String(_) = value {
 					if let Some(address) = parse_u16(value, key, symfile) {
 						test.crash_addresses.push(address);
@@ -199,11 +192,13 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 						}
 					}
 				} else {
-					eprintln!("Value of {key} must be a 16-bit integer or an array of 16-bit integers")
+					eprintln!(
+						"Value of {key} must be a 16-bit integer or an array of 16-bit integers"
+					)
 				}
 			}
 			"enable-breakpoints" => test.enable_breakpoints = parse_bool(value, key).unwrap(),
-			"exit" => {			 
+			"exit" => {
 				if let toml::Value::Integer(_) | toml::Value::String(_) = value {
 					if let Some(address) = parse_u16(value, key, symfile) {
 						test.exit_addresses.push(address);
@@ -215,7 +210,9 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 						}
 					}
 				} else {
-					eprintln!("Value of {key} must be a 16-bit integer or an array of 16-bit integers")
+					eprintln!(
+						"Value of {key} must be a 16-bit integer or an array of 16-bit integers"
+					)
 				}
 			}
 			"timeout" => {
@@ -248,9 +245,15 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 							"sp" => result.sp = parse_u16(value, key, symfile),
 							&_ => {
 								let mut indices = key.char_indices();
-								if let (Some((_, '[')), Some((begin, _)), Some((end, ']')))
-								= (indices.next(), indices.next(), indices.last()) {
-									parse_memory(value, &key[begin..end].to_string(), symfile, &mut result.memory);
+								if let (Some((_, '[')), Some((begin, _)), Some((end, ']'))) =
+									(indices.next(), indices.next(), indices.last())
+								{
+									parse_memory(
+										value,
+										&key[begin..end],
+										symfile,
+										&mut result.memory,
+									);
 								} else {
 									eprintln!("Unknown config key {key} = {value:?}");
 								}
@@ -264,9 +267,10 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 			}
 			_ => {
 				let mut indices = key.char_indices();
-				if let (Some((_, '[')), Some((begin, _)), Some((end, ']')))
-				= (indices.next(), indices.next(), indices.last()) {
-					parse_memory(value, &key[begin..end].to_string(), symfile, &mut test.initial.memory);
+				if let (Some((_, '[')), Some((begin, _)), Some((end, ']'))) =
+					(indices.next(), indices.next(), indices.last())
+				{
+					parse_memory(value, &key[begin..end], symfile, &mut test.initial.memory);
 				} else {
 					eprintln!("Unknown config key {key} = {value:?}");
 				}
@@ -323,7 +327,7 @@ fn main() {
 	let rom = open_rom(&rom_path);
 
 	let address_space = AddressSpace::with(&rom);
-	
+
 	let mut config_text = String::new();
 	open_input(&config_path)
 		.read_to_string(&mut config_text)
@@ -332,7 +336,7 @@ fn main() {
 			exit(1);
 		});
 
-	let symfile = read_symfile(&cli.symfile);
+	let symfile = open_symfile(cli.symfile.as_ref().map(|x| x.as_ref()));
 	let tests = read_config(&config_text, &symfile);
 
 	let silence_level = match cli.silent {

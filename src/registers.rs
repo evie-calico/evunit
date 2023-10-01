@@ -1,6 +1,39 @@
+use crate::{Error, Result};
 use gb_cpu_sim::{cpu, memory};
-
 use paste::paste;
+use std::fmt;
+
+#[derive(Clone, Debug)]
+enum CompareSource {
+	Register(&'static str),
+	Address(u16),
+}
+
+impl fmt::Display for CompareSource {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			CompareSource::Register(name) => write!(f, "{name}"),
+			CompareSource::Address(address) => write!(f, "[{address:X}]"),
+		}
+	}
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CompareResult {
+	contents: Vec<(CompareSource, String, String)>,
+}
+
+impl fmt::Display for CompareResult {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		for (source, result, expected) in &self.contents {
+			writeln!(
+				f,
+				"{source} ({result}) does not match expected value ({expected})"
+			)?;
+		}
+		Ok(())
+	}
+}
 
 // All of these parameters are optional. This is because the initial values as
 // well as the resulting values do not all need to be present, and in the case
@@ -36,11 +69,18 @@ pub struct Registers {
 macro_rules! impl_with {
 	($reg:ident : $type:ty) => {
 		paste! {
+			#[must_use]
 			pub fn [<with_ $reg>](mut self, value: $type) -> Self {
 				self.$reg = Some(value);
 				self
 			}
 		}
+	};
+}
+
+impl Default for Registers {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 
@@ -76,18 +116,24 @@ impl Registers {
 		}
 	}
 
-	pub fn compare<S: memory::AddressSpace>(&self, cpu: &cpu::State<S>) -> Result<(), String> {
-		let mut err_msg = String::from("");
-
-		fn add_err<T: std::fmt::Display>(err_msg: &mut String, hint: &str, result: T, expected: T) {
-			*err_msg += &format!("{hint} ({result}) does not match expected value ({expected})\n");
-		}
+	/// Compares this set of registers to the CPU, returning an error if they do not match.
+	///
+	/// # Errors
+	///
+	/// Returns an error if the CPU's state does not match `self`
+	/// The error message contains a list of the values that did not match.
+	pub fn compare<S: memory::AddressSpace>(&self, cpu: &cpu::State<S>) -> Result<()> {
+		let mut errors = CompareResult::default();
 
 		macro_rules! check {
 			(impl $cfg:ident, $name:expr, $cpu:expr) => {
 				if let Some(value) = self.$cfg {
 					if $cpu != value {
-						add_err(&mut err_msg, stringify!($name), $cpu, value);
+						errors.contents.push((
+							CompareSource::Register(stringify!($name)),
+							$cpu.to_string(),
+							value.to_string()
+						))
 					}
 				}
 			};
@@ -109,17 +155,22 @@ impl Registers {
 		for (addr, value) in &self.memory {
 			let result = cpu.address_space.read(*addr);
 			if result != *value {
-				err_msg += &format!("[${addr:X}] ({result}) does not match expected value ({value})\n");
+				errors.contents.push((
+					CompareSource::Address(*addr),
+					result.to_string(),
+					value.to_string(),
+				));
 			}
 		}
 
-		if err_msg.is_empty() {
+		if errors.contents.is_empty() {
 			Ok(())
 		} else {
-			Err(err_msg)
+			Err(Error::CompareFailed(errors))
 		}
 	}
 
+	#[must_use]
 	pub fn new() -> Self {
 		Self {
 			a: None,
