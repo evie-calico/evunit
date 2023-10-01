@@ -11,8 +11,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-toml = { version = "0.5.9", features = ["preserve_order"] }
-clap = { version = "3.2.17", features = ["derive"] }
+toml = { version = "0.8.1", features = ["preserve_order"] }
+clap = { version = "4.4.6", features = ["derive"] }
 paste = "1.0.9"
 gb-cpu-sim = "1.0.0"
 gb-sym-file = "1.0.1"
