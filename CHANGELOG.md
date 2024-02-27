@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.0 (TBF)
+
+Fixed:
+- `--dump-dir` flag now creates the directory instead of failing.
+
 ## 1.3.1 (2023-10-10)
 
 - Enabled additional Clippy warnings.
