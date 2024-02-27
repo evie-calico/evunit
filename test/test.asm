@@ -37,6 +37,12 @@ StringTest:
 
 .string db "Hello, world!", 0
 
+HighMemoryTest:
+	ld [hVariable], a
+	ld a, [hVariable]
+	ld b, a
+	ret
+
 SECTION "Crash", ROM0[$0038]
 crash:
 	jr crash
@@ -46,3 +52,7 @@ wVariable:
 	db
 
 wString: ds strlen("Hello, world!") + 1
+
+SECTION "HighMemory", HRAM
+hVariable:
+	db

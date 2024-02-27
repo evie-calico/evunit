@@ -53,3 +53,11 @@ pc = "VariableTest"
 pc = "StringTest"
 [string.result]
 "f.z" = true
+
+# Tests whether hram is writable
+[high-memory]
+pc = "HighMemoryTest"
+a = 69
+[high-memory.result]
+a = 69
+b = 69

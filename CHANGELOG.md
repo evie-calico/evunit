@@ -2,6 +2,9 @@
 
 ## 1.4.0 (TBF)
 
+New:
+- Added emulation of HRAM
+
 Fixed:
 - `--dump-dir` flag now creates the directory instead of failing.
 
