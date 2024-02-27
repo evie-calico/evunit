@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.4.0 (TBF)
+## 1.4.0 (2024-3-27)
 
 New:
 - Added emulation of HRAM
