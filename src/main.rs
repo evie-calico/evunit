@@ -352,6 +352,7 @@ fn main() {
 	if let Some(ref dump_dir) = cli.dump_dir {
 		if let Err(msg) = fs::create_dir_all(dump_dir) {
 			eprintln!("Failed to create dump dir {dump_dir}: {msg}");
+			exit(1);
 		}
 	}
 
