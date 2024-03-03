@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.2 (2024-3-3)
+
+New:
+- Added emulation of HRAM
+
+Fixed:
+- `--dump-dir` flag now creates the directory instead of failing.
+
 ## 1.3.1 (2023-10-10)
 
 - Enabled additional Clippy warnings.

@@ -1,7 +1,7 @@
 use clap::Parser;
 use evunit::prelude::*;
 use std::collections::HashMap;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{stdin, BufReader, Read};
 use std::process::exit;
 
@@ -346,6 +346,14 @@ fn main() {
 	};
 
 	let mut logger = Logger::new(silence_level, &rom_path);
+
+	// create dump dir if it does not exist already
+	if let Some(ref dump_dir) = cli.dump_dir {
+		if let Err(msg) = fs::create_dir_all(dump_dir) {
+			eprintln!("Failed to create dump dir {dump_dir}: {msg}");
+			exit(1);
+		}
+	}
 
 	for test in &tests {
 		let mut cpu_state = cpu::State::new(address_space.clone());

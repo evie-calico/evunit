@@ -9,7 +9,8 @@ pub struct AddressSpace<'a> {
 	pub wram: [u8; 0x1000 * 8],
 	// Accessing echo ram will throw a warning.
 	pub oam: [u8; 0x100], // This includes the 105 unused bytes of OAM; they will throw a warning.
-	                      // All MMIO registers are special-cased; many serve no function.
+	// All MMIO registers are special-cased; many serve no function.
+	pub hram: [u8; 0x7F],
 }
 
 impl memory::AddressSpace for AddressSpace<'_> {
@@ -18,7 +19,8 @@ impl memory::AddressSpace for AddressSpace<'_> {
 		match address {
 			0x0000..=0x3FFF => self.rom[address],
 			0xC000..=0xDFFF => self.wram[address - 0xC000],
-			_ => panic!("Unimplemented address range for {address}"),
+			0xFF80..=0xFFFE => self.hram[address - 0xFF80],
+			_ => panic!("Unimplemented address range for 0x{address:04x}"),
 		}
 	}
 
@@ -27,7 +29,8 @@ impl memory::AddressSpace for AddressSpace<'_> {
 		match address {
 			0x0000..=0x3FFF => eprintln!("Wrote to ROM (MBC registers are not yet emulated)"),
 			0xC000..=0xDFFF => self.wram[address - 0xC000] = value,
-			_ => panic!("Unimplemented address range for {address}"),
+			0xFF80..=0xFFFE => self.hram[address - 0xFF80] = value,
+			_ => panic!("Unimplemented address range for 0x{address:04x}"),
 		};
 	}
 }
@@ -41,6 +44,7 @@ impl AddressSpace<'_> {
 			sram: vec![],
 			wram: [0; 0x1000 * 8],
 			oam: [0; 0x100],
+			hram: [0; 0x7F],
 		}
 	}
 
