@@ -1,8 +1,7 @@
 use clap::Parser;
 use evunit::prelude::*;
 use std::collections::HashMap;
-use std::fs::File;
-use std::fs;
+use std::fs::{self, File};
 use std::io::{stdin, BufReader, Read};
 use std::process::exit;
 

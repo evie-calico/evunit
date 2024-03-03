@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.4.0 (2024-3-27)
+## 1.3.2 (2024-3-3)
 
 New:
 - Added emulation of HRAM

@@ -9,7 +9,7 @@ pub struct AddressSpace<'a> {
 	pub wram: [u8; 0x1000 * 8],
 	// Accessing echo ram will throw a warning.
 	pub oam: [u8; 0x100], // This includes the 105 unused bytes of OAM; they will throw a warning.
-	                      // All MMIO registers are special-cased; many serve no function.
+	// All MMIO registers are special-cased; many serve no function.
 	pub hram: [u8; 0x7F],
 }
 
