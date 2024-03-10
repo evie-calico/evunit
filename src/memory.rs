@@ -58,6 +58,7 @@ impl AddressSpace<'_> {
 	pub fn dump<W: Write>(&self, mut file: W) -> Result<(), Error> {
 		self.dump_memory("VRAM", 0x8000, &self.vram, &mut file)?;
 		self.dump_memory("WRAM", 0xC000, &self.wram, &mut file)?;
+		self.dump_memory("HRAM", 0xFF80, &self.hram, &mut file)?;
 
 		Ok(())
 	}
