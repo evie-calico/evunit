@@ -82,7 +82,7 @@ a = 0x71
 
 # Test whether values can be pushed onto the stack and are in the correct order
 [stack]
-ps = "StackTest"
+pc = "StackTest"
 a = 0
 b = 0
 stack = [ 0xDE, 0xAD ]
