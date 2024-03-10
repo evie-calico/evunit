@@ -5,11 +5,13 @@ use std::io::{Error, Write};
 pub struct AddressSpace<'a> {
 	pub rom: &'a Vec<u8>,
 	pub vram: [u8; 0x2000], // VRAM locking is not emulated as there is not PPU present.
-	pub sram: Vec<[u8; 0x2000]>,
-	pub wram: [u8; 0x1000 * 8],
+	pub sram: [u8; 0x2000],
+	pub wram: [u8; 0x2000],
 	// Accessing echo ram will throw a warning.
-	pub oam: [u8; 0x100], // This includes the 105 unused bytes of OAM; they will throw a warning.
+	// OAM includes the 105 unused bytes of OAM; they will throw a warning.
+	pub oam: [u8; 0x100],
 	// All MMIO registers are special-cased; many serve no function.
+	// HRAM does not include 0xFFFF (or IE register)
 	pub hram: [u8; 0x7F],
 }
 
@@ -41,8 +43,8 @@ impl AddressSpace<'_> {
 		AddressSpace {
 			rom,
 			vram: [0; 0x2000],
-			sram: vec![],
-			wram: [0; 0x1000 * 8],
+			sram: [0; 0x2000],
+			wram: [0; 0x2000],
 			oam: [0; 0x100],
 			hram: [0; 0x7F],
 		}
@@ -54,30 +56,33 @@ impl AddressSpace<'_> {
 	///
 	/// Fails if the buffer could not be written to.
 	pub fn dump<W: Write>(&self, mut file: W) -> Result<(), Error> {
-		let mut output = String::new();
+		self.dump_memory("VRAM", 0x8000, &self.vram, &mut file)?;
+		self.dump_memory("WRAM", 0xC000, &self.wram, &mut file)?;
 
-		let mut address = 0x8000;
-		output += "[VRAM]";
-		for byte in self.vram {
-			if address % 16 == 0 {
-				output += format!("\n0x{address:x}:").as_str();
-			}
-			output += format!(" 0x{byte:x}").as_str();
-			address += 1;
+		Ok(())
+	}
+
+	fn dump_memory<W: Write>(&self, name: &str, start: usize, memory: &[u8], file: &mut W) -> Result<(), Error> {
+		// Print memory header
+		write!(file, "[{name}]\n")?;
+
+		// Chunk VRAM into 16 byte blocks, along with the address of each block
+		let address_chunks = memory.chunks(16)
+			.zip((start..).step_by(16));
+
+		// Print each chunk to file
+		for (chunk, address) in address_chunks {
+			let formatted_chunk = chunk.iter()
+				.map(|x| format!("0x{x:02x}"))
+				.collect::<Vec<String>>()
+				.join(" ");
+
+			write!(file, "0x{address:04x}: {formatted_chunk}\n")?;
 		}
-		output += "\n";
 
-		let mut address = 0xC000;
-		output += "[WRAM 0]";
-		for i in 0..0x2000 {
-			if address % 16 == 0 {
-				output += format!("\n0x{address:x}:").as_str();
-			}
-			output += format!(" 0x{:x}", self.vram[i]).as_str();
-			address += 1;
-		}
-		output += "\n";
+		// Add extra whitespace to separate the dumps a bit more
+		write!(file, "\n")?;
 
-		file.write_all(output.as_bytes())
+		Ok(())
 	}
 }
