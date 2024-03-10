@@ -79,3 +79,13 @@ hl = 0xC123
 "[0xC123]" = 0x71
 [unlabeled-memory.result]
 a = 0x71
+
+# Test whether values can be pushed onto the stack and are in the correct order
+[stack]
+ps = "StackTest"
+a = 0
+b = 0
+stack = [ 0xDE, 0xAD ]
+[stack.result]
+a = 0xDE
+b = 0xAD
