@@ -90,6 +90,56 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 		}
 	}
 
+	fn parse_memory_at_addr(
+		mut addr: u16,
+		value: &toml::Value,
+		symbol: &str,
+		memory: &mut Vec<(u16, u8)>,
+	) -> u16 {
+		match value {
+			toml::Value::Integer(value) => {
+				if *value > 255 || *value < -128 {
+					let mut value_array = String::new();
+					let mut working_value = *value as u32;
+					loop {
+						// We can do at least one loop because the value has over 8 bits.
+						value_array += &(working_value & 0xFF).to_string();
+						working_value >>= 8;
+						if working_value == 0 {
+							break;
+						}
+						value_array += ", ";
+					}
+					eprintln!("{symbol}'s value ({value}) is not 8-bit. Try `\"{symbol}\" = [{value_array}]` instead.");
+				} else {
+					memory.push((addr, *value as u8));
+				}
+				addr + 1
+			}
+			toml::Value::String(value) => {
+				for i in value.bytes() {
+					memory.push((addr, i));
+					addr += 1;
+				}
+				addr
+			}
+			toml::Value::Array(value) => {
+				for i in value {
+					addr = parse_memory_at_addr(addr, i, symbol, memory);
+				}
+				addr
+			}
+			toml::Value::Boolean(value) => {
+				memory.push((addr, *value as u8));
+				addr + 1
+			}
+			_ => {
+				eprintln!("Unsupported value for {symbol}: {value}");
+				addr
+			}
+		}
+	}
+
 	fn parse_memory(
 		value: &toml::Value,
 		symbol: &str,
@@ -106,58 +156,7 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 			return;
 		};
 
-		parse_memory_at_addr(addr, value, symbol, symfile, memory);
-
-		fn parse_memory_at_addr(
-			mut addr: u16,
-			value: &toml::Value,
-			symbol: &str,
-			_symfile: &HashMap<String, (u32, u16)>,
-			memory: &mut Vec<(u16, u8)>,
-		) -> u16 {
-			match value {
-				toml::Value::Integer(value) => {
-					if *value > 255 || *value < -128 {
-						let mut value_array = String::new();
-						let mut working_value = *value as u32;
-						loop {
-							// We can do at least one loop because the value has over 8 bits.
-							value_array += &(working_value & 0xFF).to_string();
-							working_value >>= 8;
-							if working_value == 0 {
-								break;
-							}
-							value_array += ", ";
-						}
-						eprintln!("{symbol}'s value ({value}) is not 8-bit. Try `\"{symbol}\" = [{value_array}]` instead.");
-					} else {
-						memory.push((addr, *value as u8));
-					}
-					addr + 1
-				}
-				toml::Value::String(value) => {
-					for i in value.bytes() {
-						memory.push((addr, i));
-						addr += 1;
-					}
-					addr
-				}
-				toml::Value::Array(value) => {
-					for i in value {
-						addr = parse_memory_at_addr(addr, i, symbol, _symfile, memory);
-					}
-					addr
-				}
-				toml::Value::Boolean(value) => {
-					memory.push((addr, *value as u8));
-					addr + 1
-				}
-				_ => {
-					eprintln!("Unsupported value for {symbol}: {value}");
-					addr
-				}
-			}
-		}
+		parse_memory_at_addr(addr, value, symbol, memory);
 	}
 
 	fn parse_configuration(
@@ -268,6 +267,9 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 				} else {
 					eprintln!("Value of `{key}` must be a table.");
 				}
+			}
+			"stack" => {
+				parse_memory_at_addr(0, value, "stack", &mut test.stack);
 			}
 			_ => {
 				let mut indices = key.char_indices();
