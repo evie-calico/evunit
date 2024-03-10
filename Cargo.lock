@@ -110,6 +110,7 @@ dependencies = [
  "gb-cpu-sim",
  "gb-sym-file",
  "paste",
+ "serde",
  "thiserror",
  "toml",
 ]

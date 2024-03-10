@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{stdin, BufReader, Read};
 use std::process::exit;
+use serde::Deserialize;
 
 pub const SILENCE_NONE: u8 = 0;
 pub const SILENCE_PASSING: u8 = 1; // Silences passing messages when tests succeed.
@@ -95,10 +96,13 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 		symfile: &HashMap<String, (u32, u16)>,
 		memory: &mut Vec<(u16, u8)>,
 	) {
+		// Parse address from label or value
 		let addr = if let Some((_, addr)) = symfile.get(symbol) {
 			*addr
+		} else if let Ok(addr) = u16::deserialize(toml::de::ValueDeserializer::new(symbol)) {
+			addr
 		} else {
-			eprintln!("Symbol \"{symbol}\" not found.");
+			eprintln!("Address \"{symbol}\" is not a valid address");
 			return;
 		};
 
