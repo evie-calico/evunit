@@ -61,3 +61,12 @@ a = 69
 [high-memory.result]
 a = 69
 b = 69
+
+# Test whether dump contains test values
+# It should be checked in the memory dump whether [wVariable] actually contains the given value
+[dump]
+pc = "OpcodeTest"
+a = 0
+"[wVariable]" = 0x55
+[dump.result]
+a = 10

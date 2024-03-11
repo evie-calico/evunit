@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.3 (2024-3-10)
+
+Fixed:
+- Dump not correctly showing contents of memory
+
 ## 1.3.2 (2024-3-3)
 
 New:
