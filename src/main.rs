@@ -250,7 +250,7 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 									let memory = parse_memory(&key[begin..end], value);
 									match memory {
 										Err(cause) => eprintln!("{}", cause),
-										Ok(data) => test.initial.memory = data.iter()
+										Ok(data) => result.memory = data.iter()
 											.enumerate()
 											.map(|(i, b)| (address + (i as u16), *b))
 											.collect::<Vec<(u16, u8)>>(),
