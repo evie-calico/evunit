@@ -30,7 +30,7 @@ pub struct TestConfig {
 	/// The final expected state of the CPU, if any.
 	pub result: Option<Registers>,
 	/// List of values pushed to stack before pushing caller address to stack and running test
-	pub stack: Vec<(u16, u8)>,
+	pub stack: Vec<u8>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -64,7 +64,7 @@ impl TestConfig {
 		self.initial.configure(cpu_state);
 
 		// Push stack values onto the stack (if any)
-		for (_, value) in self.stack.iter().rev() {
+		for value in self.stack.iter().rev() {
 			cpu_state.sp -= 1;
 			cpu_state.write(cpu_state.sp, *value);
 		}
