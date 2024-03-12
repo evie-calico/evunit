@@ -155,7 +155,6 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 	}
 
 	fn parse_memory_assignment(
-		test: &mut TestConfig,
 		name: &str,
 		value: &toml::Value,
 		symfile: &HashMap<String, (u32, u16)>,
@@ -266,7 +265,7 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 								if let (Some((_, '[')), Some((begin, _)), Some((end, ']'))) =
 									(indices.next(), indices.next(), indices.last())
 								{
-									match parse_memory_assignment(test, &key[begin..end], value, symfile) {
+									match parse_memory_assignment(&key[begin..end], value, symfile) {
 										Err(cause) => eprintln!("{}", cause),
 										Ok(data) => result.memory = data,
 									};
@@ -292,7 +291,7 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 				if let (Some((_, '[')), Some((begin, _)), Some((end, ']'))) =
 					(indices.next(), indices.next(), indices.last())
 				{
-					match parse_memory_assignment(test, &key[begin..end], value, symfile) {
+					match parse_memory_assignment(&key[begin..end], value, symfile) {
 						Err(cause) => eprintln!("{}", cause),
 						Ok(data) => test.initial.memory = data,
 					};
