@@ -1,10 +1,10 @@
 use clap::Parser;
 use evunit::prelude::*;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{stdin, BufReader, Read};
 use std::process::exit;
-use serde::Deserialize;
 
 pub const SILENCE_NONE: u8 = 0;
 pub const SILENCE_PASSING: u8 = 1; // Silences passing messages when tests succeed.
@@ -107,7 +107,8 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 		match value {
 			toml::Value::Integer(value) => {
 				if *value > 255 || *value < -128 {
-					let value_array = (*value as i64).to_le_bytes()
+					let value_array = (*value as i64)
+						.to_le_bytes()
 						.iter()
 						.skip_while(|b| **b == 0)
 						.map(|b| format!("0x{b:02x}"))
@@ -115,7 +116,9 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 						.join(", ");
 
 					// Disallow non 8-bit values and present alternative
-					Err(format!("\"{value}\" is not an 8-bit value. Try \"[{value_array}]\" instead."))
+					Err(format!(
+						"\"{value}\" is not an 8-bit value. Try \"[{value_array}]\" instead."
+					))
 				} else {
 					// Treat any byte size number as a byte
 					Ok(vec![(*value as u8)])
@@ -124,28 +127,51 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 			toml::Value::String(value) => {
 				if !value.is_ascii() {
 					// Disallow any strings which contain non-ASCII values
-					Err(format!("String value \"{value}\" contains non-ASCII characters"))
+					Err(format!(
+						"String value \"{value}\" contains non-ASCII characters"
+					))
 				} else {
 					// Convert string into sequence of bytes
 					Ok(value.bytes().collect::<Vec<_>>())
 				}
 			}
 			toml::Value::Array(value) => {
-				// Recursively call function on all toml::Value and return their collected result 
-				value.iter()
+				// Recursively call function on all toml::Value and return their collected result
+				value
+					.iter()
 					.map(|v| parse_memory(name, v))
 					.collect::<Result<Vec<Vec<u8>>, String>>()
 					.map(|mem| mem.into_iter().flatten().collect::<Vec<u8>>())
 			}
 			toml::Value::Boolean(value) => {
 				// Convert bool into either a 1 or a 0
-				Ok(vec![if *value {1} else {0}])
+				Ok(vec![if *value { 1 } else { 0 }])
 			}
 			_ => {
 				// Other types return error as they are not supported
 				Err(format!("Unsupported value for {name}: {value}"))
 			}
 		}
+	}
+
+	fn parse_memory_assignment(
+		test: &mut TestConfig,
+		name: &str,
+		value: &toml::Value,
+		symfile: &HashMap<String, (u32, u16)>,
+	) -> Result<Vec<(u16, u8)>, String> {
+		let address = parse_address(name, symfile);
+		if address.is_none() {
+			return Err(format!("Address \"{}\" is not a valid address", name));
+		}
+		let address = address.unwrap();
+
+		parse_memory(name, value).map(|data| {
+			data.iter()
+				.enumerate()
+				.map(|(i, b)| (address + (i as u16), *b))
+				.collect::<Vec<(u16, u8)>>()
+		})
 	}
 
 	fn parse_configuration(
@@ -240,20 +266,9 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 								if let (Some((_, '[')), Some((begin, _)), Some((end, ']'))) =
 									(indices.next(), indices.next(), indices.last())
 								{
-									let address = parse_address(&key[begin..end], symfile);
-									if address.is_none() {
-										eprintln!("Address \"{}\" is not a valid address", &key[begin..end]);
-										return;
-									}
-									let address = address.unwrap();
-
-									let memory = parse_memory(&key[begin..end], value);
-									match memory {
+									match parse_memory_assignment(test, &key[begin..end], value, symfile) {
 										Err(cause) => eprintln!("{}", cause),
-										Ok(data) => result.memory = data.iter()
-											.enumerate()
-											.map(|(i, b)| (address + (i as u16), *b))
-											.collect::<Vec<(u16, u8)>>(),
+										Ok(data) => result.memory = data,
 									};
 								} else {
 									eprintln!("Unknown config key {key} = {value:?}");
@@ -277,20 +292,9 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 				if let (Some((_, '[')), Some((begin, _)), Some((end, ']'))) =
 					(indices.next(), indices.next(), indices.last())
 				{
-					let address = parse_address(&key[begin..end], symfile);
-					if address.is_none() {
-						eprintln!("Address \"{}\" is not a valid address", &key[begin..end]);
-						return;
-					}
-					let address = address.unwrap();
-
-					let memory = parse_memory(&key[begin..end], value);
-					match memory {
+					match parse_memory_assignment(test, &key[begin..end], value, symfile) {
 						Err(cause) => eprintln!("{}", cause),
-						Ok(data) => test.initial.memory = data.iter()
-							.enumerate()
-							.map(|(i, b)| (address + (i as u16), *b))
-							.collect::<Vec<(u16, u8)>>(),
+						Ok(data) => test.initial.memory = data,
 					};
 				} else {
 					eprintln!("Unknown config key {key} = {value:?}");
