@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.4 (2024-3-13)
+
+New:
+- `stack` option added for pushing values to the stack.
+- Memory assignment can now be done to arbitrary integer values.
+
+Changed:
+- Strings containing non-ASCII characters will generate errors.
+
 ## 1.3.3 (2024-3-10)
 
 Fixed:
