@@ -29,6 +29,8 @@ pub struct TestConfig {
 	pub initial: Registers,
 	/// The final expected state of the CPU, if any.
 	pub result: Option<Registers>,
+	/// List of values pushed to stack before pushing caller address to stack and running test
+	pub stack: Vec<u8>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -50,6 +52,7 @@ impl TestConfig {
 			timeout: 65536,
 			initial: Registers::new(),
 			result: None,
+			stack: vec![],
 		}
 	}
 
@@ -59,6 +62,12 @@ impl TestConfig {
 		logger: &mut TestLogger<'_, '_>,
 	) -> bool {
 		self.initial.configure(cpu_state);
+
+		// Push stack values onto the stack (if any)
+		for value in self.stack.iter().rev() {
+			cpu_state.sp -= 1;
+			cpu_state.write(cpu_state.sp, *value);
+		}
 
 		// Push the return address onto the stack.
 		cpu_state.write(cpu_state.sp - 1, (self.caller_address & 0xFF) as u8);

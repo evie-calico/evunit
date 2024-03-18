@@ -104,12 +104,13 @@ checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
 
 [[package]]
 name = "evunit"
-version = "1.3.3"
+version = "1.3.4"
 dependencies = [
  "clap",
  "gb-cpu-sim",
  "gb-sym-file",
  "paste",
+ "serde",
  "thiserror",
  "toml",
 ]

@@ -43,6 +43,16 @@ HighMemoryTest:
 	ld b, a
 	ret
 
+UnlabeledMemoryTest:
+	ld a, [hl]
+	ret
+
+StackTest:
+	ld hl, sp+2
+	ld a, [hl+]
+	ld b, [hl]
+	ret
+
 SECTION "Crash", ROM0[$0038]
 crash:
 	jr crash
