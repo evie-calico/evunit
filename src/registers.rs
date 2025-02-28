@@ -35,6 +35,28 @@ impl fmt::Display for CompareResult {
 	}
 }
 
+trait FormatValue {
+	fn format_value(&self) -> String;
+}
+
+impl FormatValue for bool {
+	fn format_value(&self) -> String {
+		self.to_string()
+	}
+}
+
+impl FormatValue for u8 {
+	fn format_value(&self) -> String {
+		format!("{:#04X}", self)
+	}
+}
+
+impl FormatValue for u16 {
+	fn format_value(&self) -> String {
+		format!("{:#04X}", self)
+	}
+}
+
 // All of these parameters are optional. This is because the initial values as
 // well as the resulting values do not all need to be present, and in the case
 // of results, may even be unknown.
@@ -131,8 +153,8 @@ impl Registers {
 					if $cpu != value {
 						errors.contents.push((
 							CompareSource::Register(stringify!($name)),
-							$cpu.to_string(),
-							value.to_string()
+							$cpu.format_value(),
+							value.format_value()
 						))
 					}
 				}
