@@ -109,6 +109,7 @@ dependencies = [
  "clap",
  "gb-cpu-sim",
  "gb-sym-file",
+ "owo-colors",
  "paste",
  "serde",
  "thiserror",
@@ -160,6 +161,12 @@ name = "memchr"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "523dc4f511e55ab87b694dc30d0f820d60906ef06413f93d4d7a1385599cc149"
+
+[[package]]
+name = "owo-colors"
+version = "4.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1036865bb9422d3300cf723f657c2851d0e9ab12567854b1f4eba3d77decf564"
 
 [[package]]
 name = "paste"

@@ -1,5 +1,6 @@
 use crate::Error;
 use gb_cpu_sim::{cpu, memory};
+use owo_colors::{OwoColorize, Style};
 
 use crate::test::{FailureReason, TestConfig};
 
@@ -54,11 +55,24 @@ impl<'a> Logger<'a> {
 	pub fn finish(&self) -> bool {
 		// When in SILENCE_ALL only print the final message if a test failed.
 		if !self.silence_all || self.failure != 0 {
+			let total = self.pass + self.failure;
+			let style: Style = if total == 0 {
+				Style::new().yellow()
+			} else if self.pass == total {
+				Style::new().green()
+			} else if self.pass == 0 {
+				Style::new().red()
+			} else {
+				Style::new().yellow()
+			};
+
 			println!(
-				"{}: All tests complete. {}/{} passed.",
-				self.rom_path,
-				self.pass,
-				self.pass + self.failure
+				"{}{} {}/{} {}",
+				self.rom_path.style(style),
+				": All tests complete.".style(style),
+				self.pass.style(style),
+				(self.pass + self.failure).style(style),
+				"passed.".style(style)
 			);
 		}
 		self.failure == 0
@@ -85,8 +99,10 @@ impl<'a, 'b> TestLogger<'a, 'b> {
 	pub fn pass(&mut self) {
 		if !self.logger.silence_passing {
 			println!(
-				"\x1B[92m{}: {} passed\x1B[0m",
-				self.logger.rom_path, self.name
+				"{}: {} {}",
+				self.logger.rom_path.green(),
+				self.name.green(),
+				"passed".green()
 			);
 		}
 		self.logger.pass += 1;
@@ -97,13 +113,14 @@ impl<'a, 'b> TestLogger<'a, 'b> {
 		cpu_state: &cpu::State<A>,
 	) {
 		println!(
-			"\x1B[91m{}: {} failed\x1B[0m:\n{}\n{}",
-			self.logger.rom_path,
-			self.name,
+			"{}: {} {}:\n{}\n{}",
+			self.logger.rom_path.red(),
+			self.name.red(),
+			"failed".red(),
 			match failure_reason {
-				FailureReason::InvalidOpcode => "Invalid opcode",
-				FailureReason::Crash => "Crashed",
-				FailureReason::Timeout => "Timeout",
+				FailureReason::InvalidOpcode => "Invalid opcode".red(),
+				FailureReason::Crash => "Crashed".red(),
+				FailureReason::Timeout => "Timeout".red(),
 			},
 			cpu_state
 		);
@@ -111,8 +128,11 @@ impl<'a, 'b> TestLogger<'a, 'b> {
 	}
 	pub fn incorrect(&mut self, msg: &Error) {
 		print!(
-			"\x1B[91m{}: {} failed\x1B[0m:\n{msg}",
-			self.logger.rom_path, self.name,
+			"{}: {} {}:\n{}",
+			self.logger.rom_path.red(),
+			"failed".red(),
+			self.name.red(),
+			msg,
 		);
 		self.logger.failure += 1;
 	}
