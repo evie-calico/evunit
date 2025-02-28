@@ -28,7 +28,7 @@ impl fmt::Display for CompareResult {
 		for (source, result, expected) in &self.contents {
 			writeln!(
 				f,
-				"{source} ({result}) does not match expected value ({expected})"
+				"{source} ({result}) does not match expected value ({expected})",
 			)?;
 		}
 		Ok(())

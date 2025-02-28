@@ -1,5 +1,6 @@
 use crate::Error;
 use gb_cpu_sim::{cpu, memory};
+use owo_colors::OwoColorize;
 
 use crate::test::{FailureReason, TestConfig};
 
@@ -58,14 +59,14 @@ impl<'a> Logger<'a> {
 				"{}: All tests complete. {}/{} passed.",
 				self.rom_path,
 				self.pass,
-				self.pass + self.failure
+				self.pass + self.failure,
 			);
 		}
 		self.failure == 0
 	}
 }
 
-impl<'a, 'b> TestLogger<'a, 'b> {
+impl TestLogger<'_, '_> {
 	pub fn log_breakpoint<A: memory::AddressSpace>(&mut self, cpu_state: &cpu::State<A>) {
 		if self.enable_breakpoints {
 			println!(
@@ -85,8 +86,10 @@ impl<'a, 'b> TestLogger<'a, 'b> {
 	pub fn pass(&mut self) {
 		if !self.logger.silence_passing {
 			println!(
-				"\x1B[92m{}: {} passed\x1B[0m",
-				self.logger.rom_path, self.name
+				"{}: {} {}",
+				self.logger.rom_path,
+				self.name,
+				"passed".green()
 			);
 		}
 		self.logger.pass += 1;
@@ -97,9 +100,10 @@ impl<'a, 'b> TestLogger<'a, 'b> {
 		cpu_state: &cpu::State<A>,
 	) {
 		println!(
-			"\x1B[91m{}: {} failed\x1B[0m:\n{}\n{}",
+			"{}: {} {}:\n{}\n{}",
 			self.logger.rom_path,
 			self.name,
+			"failed".red(),
 			match failure_reason {
 				FailureReason::InvalidOpcode => "Invalid opcode",
 				FailureReason::Crash => "Crashed",
@@ -111,8 +115,11 @@ impl<'a, 'b> TestLogger<'a, 'b> {
 	}
 	pub fn incorrect(&mut self, msg: &Error) {
 		print!(
-			"\x1B[91m{}: {} failed\x1B[0m:\n{msg}",
-			self.logger.rom_path, self.name,
+			"{}: {} {}:\n{}",
+			self.logger.rom_path,
+			self.name,
+			"failed".red(),
+			msg,
 		);
 		self.logger.failure += 1;
 	}
