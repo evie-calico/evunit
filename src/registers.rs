@@ -126,31 +126,31 @@ impl Registers {
 		let mut errors = CompareResult::default();
 
 		macro_rules! check {
-			(impl $cfg:ident, $name:expr, $cpu:expr) => {
+			(impl $format:literal, $cfg:ident, $name:expr, $cpu:expr) => {
 				if let Some(value) = self.$cfg {
 					if $cpu != value {
 						errors.contents.push((
 							CompareSource::Register(stringify!($name)),
-							$cpu.to_string(),
-							value.to_string()
+							format!($format, $cpu),
+							format!($format, value)
 						))
 					}
 				}
 			};
-			($reg:ident) => {
-				check!(impl $reg, $reg, cpu.$reg)
+			($format:literal, $reg:ident) => {
+				check!(impl $format, $reg, $reg, cpu.$reg)
 			};
-			(get $reg:ident) => {
-				paste! { check!(impl $reg, $reg, cpu.[<get_ $reg>]()) }
+			($format:literal, get $reg:ident) => {
+				paste! { check!(impl $format, $reg, $reg, cpu.[<get_ $reg>]()) }
 			};
-			(f $flag:ident) => {
-				paste! { check!(impl [<$flag f>], f.$flag, cpu.f.[<get_ $flag>]()) }
+			($format:literal, f $flag:ident) => {
+				paste! { check!(impl $format, [<$flag f>], f.$flag, cpu.f.[<get_ $flag>]()) }
 			};
-			($($($i:ident)+),+) => { $( check!($($i)+); )+ };
+			($format:literal, $($($i:ident)+),+) => { $( check!($format, $($i)+); )+ };
 		}
-		check!(a, b, c, d, e, h, l);
-		check!(f z, f n, f h, f c);
-		check!(get bc, get de, get hl, sp, pc);
+		check!("0x{:02X}", a, b, c, d, e, h, l);
+		check!("{}", f z, f n, f h, f c);
+		check!("0x{:04X}", get bc, get de, get hl, sp, pc);
 
 		for (addr, value) in &self.memory {
 			let result = cpu.address_space.read(*addr);
