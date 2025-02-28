@@ -1,6 +1,6 @@
 use crate::Error;
 use gb_cpu_sim::{cpu, memory};
-use owo_colors::{OwoColorize, Style};
+use owo_colors::OwoColorize;
 
 use crate::test::{FailureReason, TestConfig};
 
@@ -55,31 +55,18 @@ impl<'a> Logger<'a> {
 	pub fn finish(&self) -> bool {
 		// When in SILENCE_ALL only print the final message if a test failed.
 		if !self.silence_all || self.failure != 0 {
-			let total = self.pass + self.failure;
-			let style: Style = if total == 0 {
-				Style::new().yellow()
-			} else if self.pass == total {
-				Style::new().green()
-			} else if self.pass == 0 {
-				Style::new().red()
-			} else {
-				Style::new().yellow()
-			};
-
 			println!(
-				"{}{} {}/{} {}",
-				self.rom_path.style(style),
-				": All tests complete.".style(style),
-				self.pass.style(style),
-				(self.pass + self.failure).style(style),
-				"passed.".style(style)
+				"{}: All tests complete. {}/{} passed.",
+				self.rom_path,
+				self.pass,
+				self.pass + self.failure,
 			);
 		}
 		self.failure == 0
 	}
 }
 
-impl<'a, 'b> TestLogger<'a, 'b> {
+impl TestLogger<'_, '_> {
 	pub fn log_breakpoint<A: memory::AddressSpace>(&mut self, cpu_state: &cpu::State<A>) {
 		if self.enable_breakpoints {
 			println!(
@@ -100,8 +87,8 @@ impl<'a, 'b> TestLogger<'a, 'b> {
 		if !self.logger.silence_passing {
 			println!(
 				"{}: {} {}",
-				self.logger.rom_path.green(),
-				self.name.green(),
+				self.logger.rom_path,
+				self.name,
 				"passed".green()
 			);
 		}
@@ -114,13 +101,13 @@ impl<'a, 'b> TestLogger<'a, 'b> {
 	) {
 		println!(
 			"{}: {} {}:\n{}\n{}",
-			self.logger.rom_path.red(),
-			self.name.red(),
+			self.logger.rom_path,
+			self.name,
 			"failed".red(),
 			match failure_reason {
-				FailureReason::InvalidOpcode => "Invalid opcode".red(),
-				FailureReason::Crash => "Crashed".red(),
-				FailureReason::Timeout => "Timeout".red(),
+				FailureReason::InvalidOpcode => "Invalid opcode",
+				FailureReason::Crash => "Crashed",
+				FailureReason::Timeout => "Timeout",
 			},
 			cpu_state
 		);
@@ -129,9 +116,9 @@ impl<'a, 'b> TestLogger<'a, 'b> {
 	pub fn incorrect(&mut self, msg: &Error) {
 		print!(
 			"{}: {} {}:\n{}",
-			self.logger.rom_path.red(),
+			self.logger.rom_path,
+			self.name,
 			"failed".red(),
-			self.name.red(),
 			msg,
 		);
 		self.logger.failure += 1;

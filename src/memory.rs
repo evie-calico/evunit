@@ -33,7 +33,7 @@ impl memory::AddressSpace for AddressSpace<'_> {
 			0xC000..=0xDFFF => self.wram[address - 0xC000] = value,
 			0xFF80..=0xFFFE => self.hram[address - 0xFF80] = value,
 			_ => panic!("Unimplemented address range for 0x{address:04x}"),
-		};
+		}
 	}
 }
 
@@ -56,33 +56,38 @@ impl AddressSpace<'_> {
 	///
 	/// Fails if the buffer could not be written to.
 	pub fn dump<W: Write>(&self, mut file: W) -> Result<(), Error> {
-		self.dump_memory("VRAM", 0x8000, &self.vram, &mut file)?;
-		self.dump_memory("WRAM", 0xC000, &self.wram, &mut file)?;
-		self.dump_memory("HRAM", 0xFF80, &self.hram, &mut file)?;
+		fn dump_memory<W: Write>(
+			name: &str,
+			start: usize,
+			memory: &[u8],
+			file: &mut W,
+		) -> Result<(), Error> {
+			// Print memory header
+			writeln!(file, "[{name}]")?;
 
-		Ok(())
-	}
+			// Chunk VRAM into 16 byte blocks, along with the address of each block
+			let address_chunks = memory.chunks(16).zip((start..).step_by(16));
 
-	fn dump_memory<W: Write>(&self, name: &str, start: usize, memory: &[u8], file: &mut W) -> Result<(), Error> {
-		// Print memory header
-		write!(file, "[{name}]\n")?;
+			// Print each chunk to file
+			for (chunk, address) in address_chunks {
+				let formatted_chunk = chunk
+					.iter()
+					.map(|x| format!("0x{x:02x}"))
+					.collect::<Vec<String>>()
+					.join(" ");
 
-		// Chunk VRAM into 16 byte blocks, along with the address of each block
-		let address_chunks = memory.chunks(16)
-			.zip((start..).step_by(16));
+				writeln!(file, "0x{address:04x}: {formatted_chunk}")?;
+			}
 
-		// Print each chunk to file
-		for (chunk, address) in address_chunks {
-			let formatted_chunk = chunk.iter()
-				.map(|x| format!("0x{x:02x}"))
-				.collect::<Vec<String>>()
-				.join(" ");
+			// Add extra whitespace to separate the dumps a bit more
+			writeln!(file)?;
 
-			write!(file, "0x{address:04x}: {formatted_chunk}\n")?;
+			Ok(())
 		}
 
-		// Add extra whitespace to separate the dumps a bit more
-		write!(file, "\n")?;
+		dump_memory("VRAM", 0x8000, &self.vram, &mut file)?;
+		dump_memory("WRAM", 0xC000, &self.wram, &mut file)?;
+		dump_memory("HRAM", 0xFF80, &self.hram, &mut file)?;
 
 		Ok(())
 	}

@@ -2,7 +2,6 @@ use crate::{Error, Result};
 use gb_cpu_sim::{cpu, memory};
 use paste::paste;
 use std::fmt;
-use owo_colors::OwoColorize;
 
 #[derive(Clone, Debug)]
 enum CompareSource {
@@ -30,9 +29,6 @@ impl fmt::Display for CompareResult {
 			writeln!(
 				f,
 				"{source} ({result}) does not match expected value ({expected})",
-				source = source.bold().bright_white(),
-				result = result.cyan(),
-				expected = expected.cyan()
 			)?;
 		}
 		Ok(())

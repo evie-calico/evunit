@@ -94,12 +94,8 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 		if let Some((_, address)) = symfile.get(address) {
 			// Attempt to get address from symfile
 			Some(*address)
-		} else if let Ok(address) = u16::deserialize(toml::de::ValueDeserializer::new(address)) {
-			// Attempt to parse address as an u16 value
-			Some(address)
 		} else {
-			// Failed to parse address
-			None
+			u16::deserialize(toml::de::ValueDeserializer::new(address)).ok()
 		}
 	}
 
@@ -107,7 +103,7 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 		match value {
 			toml::Value::Integer(value) => {
 				if *value > 255 || *value < -128 {
-					let value_array = (*value as i64)
+					let value_array = value
 						.to_le_bytes()
 						.iter()
 						.skip_while(|b| **b == 0)
@@ -265,7 +261,8 @@ fn read_config(path: &str, symfile: &HashMap<String, (u32, u16)>) -> Vec<TestCon
 								if let (Some((_, '[')), Some((begin, _)), Some((end, ']'))) =
 									(indices.next(), indices.next(), indices.last())
 								{
-									match parse_memory_assignment(&key[begin..end], value, symfile) {
+									match parse_memory_assignment(&key[begin..end], value, symfile)
+									{
 										Err(cause) => eprintln!("{}", cause),
 										Ok(data) => result.memory = data,
 									};
