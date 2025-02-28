@@ -35,28 +35,6 @@ impl fmt::Display for CompareResult {
 	}
 }
 
-trait FormatValue {
-	fn format_value(&self) -> String;
-}
-
-impl FormatValue for bool {
-	fn format_value(&self) -> String {
-		self.to_string()
-	}
-}
-
-impl FormatValue for u8 {
-	fn format_value(&self) -> String {
-		format!("{:#04X}", self)
-	}
-}
-
-impl FormatValue for u16 {
-	fn format_value(&self) -> String {
-		format!("{:#04X}", self)
-	}
-}
-
 // All of these parameters are optional. This is because the initial values as
 // well as the resulting values do not all need to be present, and in the case
 // of results, may even be unknown.
@@ -148,31 +126,31 @@ impl Registers {
 		let mut errors = CompareResult::default();
 
 		macro_rules! check {
-			(impl $cfg:ident, $name:expr, $cpu:expr) => {
+			(impl $format:literal, $cfg:ident, $name:expr, $cpu:expr) => {
 				if let Some(value) = self.$cfg {
 					if $cpu != value {
 						errors.contents.push((
 							CompareSource::Register(stringify!($name)),
-							$cpu.format_value(),
-							value.format_value()
+							format!($format, $cpu),
+							format!($format, value)
 						))
 					}
 				}
 			};
-			($reg:ident) => {
-				check!(impl $reg, $reg, cpu.$reg)
+			($format:literal, $reg:ident) => {
+				check!(impl $format, $reg, $reg, cpu.$reg)
 			};
-			(get $reg:ident) => {
-				paste! { check!(impl $reg, $reg, cpu.[<get_ $reg>]()) }
+			($format:literal, get $reg:ident) => {
+				paste! { check!(impl $format, $reg, $reg, cpu.[<get_ $reg>]()) }
 			};
-			(f $flag:ident) => {
-				paste! { check!(impl [<$flag f>], f.$flag, cpu.f.[<get_ $flag>]()) }
+			($format:literal, f $flag:ident) => {
+				paste! { check!(impl $format, [<$flag f>], f.$flag, cpu.f.[<get_ $flag>]()) }
 			};
-			($($($i:ident)+),+) => { $( check!($($i)+); )+ };
+			($format:literal, $($($i:ident)+),+) => { $( check!($format, $($i)+); )+ };
 		}
-		check!(a, b, c, d, e, h, l);
-		check!(f z, f n, f h, f c);
-		check!(get bc, get de, get hl, sp, pc);
+		check!("0x{:02X}", a, b, c, d, e, h, l);
+		check!("{}", f z, f n, f h, f c);
+		check!("0x{:04X}", get bc, get de, get hl, sp, pc);
 
 		for (addr, value) in &self.memory {
 			let result = cpu.address_space.read(*addr);
